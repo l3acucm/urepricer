@@ -11,21 +11,24 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     """Application settings with environment variable support."""
     
+    # Testing mode
+    testing: bool = Field(default=False, env="TESTING")
+    
     # Application settings
     debug: bool = Field(default=False, env="DEBUG")
-    secret_key: str = Field(env="SECRET_KEY")
+    secret_key: str = Field(default="test-secret-key", env="SECRET_KEY")
     cors_origins: List[str] = Field(default=["*"], env="CORS_ORIGINS")
     
     # Database configuration
-    database_url: PostgresDsn = Field(env="DATABASE_URL")
+    database_url: str = Field(default="postgresql://test:test@localhost/test", env="DATABASE_URL")
     db_name: str = Field(env="DB_NAME", default="arbitrage_hero")
     db_user: str = Field(env="USER_NAME", default="postgres")
-    db_password: str = Field(env="PASSWORD")
+    db_password: str = Field(default="test-password", env="PASSWORD")
     db_host: str = Field(env="HOST", default="localhost")
     db_port: int = Field(env="POSTGRES_PORT", default=5432)
     
     # Redis configuration (for Celery only)
-    redis_url: RedisDsn = Field(env="REDIS_URL", default="redis://localhost:6379/0")
+    redis_url: str = Field(env="REDIS_URL", default="redis://localhost:6379/0")
     redis_host: str = Field(env="REDIS_HOST", default="localhost")
     redis_port: int = Field(env="REDIS_PORT", default=6379)
     redis_password: Optional[str] = Field(env="REDIS_PASSWORD", default=None)
@@ -35,30 +38,30 @@ class Settings(BaseSettings):
     celery_result_backend: str = Field(env="CELERY_RESULT_BACKEND", default="redis://localhost:6379/0")
     
     # JWT Configuration
-    jwt_secret_key: str = Field(env="JWT_SECRET_KEY")
+    jwt_secret_key: str = Field(default="test-jwt-secret", env="JWT_SECRET_KEY")
     jwt_algorithm: str = Field(default="HS256", env="JWT_ALGORITHM")
     jwt_expire_minutes: int = Field(default=60 * 24 * 7, env="JWT_EXPIRE_MINUTES")  # 7 days
     
     # Amazon SP-API Configuration
-    amazon_client_id: str = Field(env="AMAZON_CLIENT_ID")
-    amazon_client_secret: str = Field(env="AMAZON_CLIENT_SECRET")
-    amazon_refresh_token: str = Field(env="AMAZON_REFRESH_TOKEN")
+    amazon_client_id: str = Field(default="test-client-id", env="AMAZON_CLIENT_ID")
+    amazon_client_secret: str = Field(default="test-client-secret", env="AMAZON_CLIENT_SECRET")
+    amazon_refresh_token: str = Field(default="test-refresh-token", env="AMAZON_REFRESH_TOKEN")
     
     # AWS Configuration
-    aws_access_key_id: str = Field(env="AWS_ACCESS_KEY_ID")
-    aws_secret_access_key: str = Field(env="AWS_SECRET_ACCESS_KEY")
+    aws_access_key_id: str = Field(default="test-access-key", env="AWS_ACCESS_KEY_ID")
+    aws_secret_access_key: str = Field(default="test-secret-key", env="AWS_SECRET_ACCESS_KEY")
     aws_region: str = Field(env="AWS_REGION", default="us-east-1")
     role_arn: Optional[str] = Field(env="ROLE_ARN", default=None)
     aws_endpoint_url: Optional[str] = Field(env="AWS_ENDPOINT_URL", default=None)  # For LocalStack
     
     # SQS Configuration
-    sqs_queue_url_any_offer: str = Field(env="SQS_QUEUE_URL_ANY_OFFER")
-    sqs_queue_url_feed_processing: str = Field(env="SQS_QUEUE_URL_FEED_PROCESSING")
+    sqs_queue_url_any_offer: str = Field(default="test-queue-url", env="SQS_QUEUE_URL_ANY_OFFER")
+    sqs_queue_url_feed_processing: str = Field(default="test-queue-url", env="SQS_QUEUE_URL_FEED_PROCESSING")
     
     # Notification destinations (per marketplace)
-    destination_id_us: str = Field(env="DESTINATION_ID_US")
-    destination_id_uk: str = Field(env="DESTINATION_ID_UK")
-    destination_id_ca: str = Field(env="DESTINATION_ID_CA")
+    destination_id_us: str = Field(default="test-destination-us", env="DESTINATION_ID_US")
+    destination_id_uk: str = Field(default="test-destination-uk", env="DESTINATION_ID_UK")
+    destination_id_ca: str = Field(default="test-destination-ca", env="DESTINATION_ID_CA")
     destination_id_au: Optional[str] = Field(env="DESTINATION_ID_AU", default=None)
     
     # Kafka Configuration (for external integrations only)

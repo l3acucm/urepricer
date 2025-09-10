@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Repricer Queues</title>
+</head>
+<body>
+    <pre>Kafka Topics and SQS Queues for AH-REPRICER
+
+Repricer’s Payload:
+
+Topic: ah_repricer
+
+Host: 92.119.129.177
+
+Port: 31483
+
+
+
+This kafka topic is used to consume the payload to start repricing in core-engine. A single message (for single product) and a batch (for multiple products) can be produced in a message to consume. 
+
+Handled Payloads: 
+
+--	Seller Partner Api Payload
+
+--	Batch Seller Partner Api Payload
+
+--	B2B Seller Partner Api Payload
+
+--	Batch B2B Seller Partner Api Payload
+
+
+
+For SQS Notification for AnyOfferChangeNotifcation and B2BAnyOfferNotification we have a rapper that will consume these notifications from SQS and mould to produce in this kafka topic to be used for repricing. (Currently AnyOfferChange is not enable)
+
+Store Listing and Strategy Data:
+
+Topic: ah-repricer-listing-data
+
+Host: 92.119.129.177
+
+Port: 31483
+
+
+
+This topic is used for the reception of both Strategy data and listing data, which will then be stored in Redis. We can produce a list of Strategies and Listing data in a single message to store both in bulk. 
+
+
+
+Sample Listing Data:
+
+[
+
+    {"ASIN-TR01489": {
+
+        "SELLER-AX01444": {
+
+            "ZXAK012H21": {
+
+                "min": 11,
+
+                "max": 13,
+
+                "default_price": 10,
+
+                "listed_price": 12,
+
+                "strategy_id": 3,
+
+                "inventory_age": 60,
+
+                "status": "Active",
+
+                "b2b_rules": {
+
+                    "listed_price": 10,
+
+                    "min": 5.12,
+
+                    "max": 22,
+
+                    "default_price": 20,
+
+                    "tiers": {"tier1": {"min": 5, "max": 0, "quantity": "0", "listed_price": "12.00", "default_price": 10}, "tier2": {"min": 0, "max": 0, "quantity": "5", "listed_price": "0.00"}, "tier3": {"min": 0, "max": 0, "quantity": "7", "listed_price": "0.00"}, "tier4": {"min": 0, "max": 0, "quantity": "10", "listed_price": "0.00"}, "tier5": {"min": 0, "max": 0, "quantity": "12", "listed_price": "0.00"}},
+
+                    "strategy_id": 1,
+
+                    "listed_price": 45.00,
+
+                    "fullfilment_type": "AMAZON",
+
+                    "item_condition": "new",
+
+                    "inventory_quantity": 1
+
+                }
+
+            }
+
+        }
+
+    }}
+
+]
+
+
+
+For Listing Data if “inventory_age”, “status”, “item_condition” and “inventory_quantity” are missing , default values will be set against them which will be “0”, “Active”, “new” and “None” respectively. 
+
+Sample Strategy Data:
+
+
+
+[
+
+    {
+
+        "strategy_id": 2,
+
+        "min_price_rule": "MATCH_COMPETITOR"
+
+    },
+
+    {
+
+        "strategy_id": 3
+
+        "min_price_rule": "DEFAULT_PRICE"
+
+    }
+
+]
+
+
+
+For strategy data if any of the attribute value is missing default price is set in that strategy.
+
+Sample Strategy Data in case of Inventory Age:
+
+
+
+[
+
+{ 
+
+    "strategy_id": 1,
+
+    "compete_with": "MATCH_BUYBOX",
+
+    "min_price_rule": "MATCH_COMPETITOR",
+
+    "beat_by": -0.1,
+
+    "inventory_age_rules": {
+
+        "0-90": {
+
+            "strategy_id": 2
+
+        },
+
+        "91-180": {
+
+            "strategy_id": 3
+
+        },
+
+        "181-270": {
+
+            "strategy_id": 4
+
+        },
+
+        "271-365": {
+
+            "strategy_id": 5
+
+        },
+
+        "365+": {
+
+            "strategy_id": 6
+
+        }
+
+    }
+
+}
+
+]
+
+
+
+If the inventory_age_rules key is not provided, it will not be set in Redis. However, when the inventory_age_rules key is supplied, it is then set in Redis.
+
+Account Credentials:
+
+Topic: ah-repricer-creds
+
+Host: 92.119.129.177
+
+Port: 31483
+
+This topic is used for receiving user credentials and subsequently storing them in the database. 
+
+
+
+Sample Message for User Credentials:
+
+[
+
+    {
+
+        "user_id": "1433",
+
+        "enabled": true,
+
+        "seller_id": "A25M6ZYMJHWYLU",
+
+        "refresh_token": "Atzr|IwEBIGZen5uEqhiU2ZwOxZb8s0g",
+
+        "marketplace_type": "UK"
+
+    },
+
+    {
+
+        "user_id": "1433",
+
+        "enabled": true,
+
+        "seller_id": "A2U504IZRVFHEQ",
+
+        "refresh_token": "Atzr|IwEBIPeNq0O1OFB4G-jUA515GvpMiVWjyQ0m",
+
+        "marketplace_type": "US"
+
+    }
+
+]
+
+
+
+
+When adding a new user, the initial step involves verifying the user's credentials to ensure they are valid. Once the credentials are confirmed, the system proceeds to check whether the user's account is enabled. Additionally, the existence of valid ASINs in the Redis is verified. If these conditions are met, the user is subscribed to notifications, and their account details are set in Redis.
+
+Conversely, if the account's enabled is false. The system unsubscribes the user from notifications and proceeds to delete the account from the Redis database. This sequential process ensures that users with valid credentials and enabled accounts receive the appropriate notifications while maintaining data integrity in the Redis storage.
+
+
+
+Delete Data:
+
+Topic: ah-repricer-delete-data
+
+Host: 92.119.129.177
+
+Port: 31483
+
+This topic is used to serve the purpose of data deletion, catering to various functions such as:
+
+--	Deleting SKU details from Redis against ASIN and Seller
+
+--	Removing Seller data from Redis against ASIN
+
+--	Clearing Sellers' data and accounts from Redis, as well as deleting users from the database.
+
+--	Deleting strategy data
+
+
+
+Sample Messages in kafka topic:
+
+For deleting listing data:
+
+[
+
+    {
+
+        "asin": "ASIN",
+
+        "seller_id": "SELLERID"
+
+    },
+
+    {
+
+        "asin": "ASIN",
+
+        "seller_id": "SELLERID",
+
+        "skus": ["SKU1"]
+
+    }
+
+]
+
+
+
+To remove a seller from the listing data, simply provide the "asin" and "seller" values, and the entire seller entry linked to that "asin" will be deleted. In the case of removing SKUs or a list of SKUs, provide the relevant "skus." This action will result in the deletion of the specified SKUs associated with the given "asin" and "seller."
+
+
+
+To do: We will be adding a new feature to delete user messages based on their user ID. This addition will enable us to delete specific accounts associated with a seller ID. The user ID parameter will be optional; if it's not provided, the system will delete all accounts associated with the given seller ID.
+
+
+
+For deleting user:
+
+[
+
+    {
+        "seller_id": “A2U504IZRVFHEQ”,
+
+    }
+
+]
+
+
+
+For user detail deletion, include the "seller" in the message within the same Kafka topic. The consumer will then process the message: if "seller" is present, it will delete the user and then all the listings associated with that user will be deleted. This streamlined process utilises the same Kafka topic and consumer to efficiently manage both user and listing deletions.
+
+
+
+For deleting strategy:
+
+[
+
+    {
+
+        "strategy_id": 1,
+
+    }
+
+]
+
+
+
+For strategy deletion, include the "strategy_id" in the message within the same Kafka topic. The consumer will then process the message: if "strategy_id" is present, it will delete the strategy. Listings associated with the deleted strategy will remain unchanged. During repricing, if a listing's strategy no longer exists, its repricing will be skipped.
+
+Processed Data:
+
+SQS Queue Narepricerme: “ah--processed-data”
+
+
+
+This queue is used to receive the data processed by the repricer after updating prices on Amazon through feed submissions against a seller's account to update their listings in the system. It encompasses information pertaining to products for which feed submissions have been carried out, regardless of whether they were successful or not. To handle this processed data, we transmit it to an SQS (Simple Queue Service) queue. The entire set of processed data for each seller's feed is sent to the queue as a single unit, and each message size remains under 250 megabytes.
+
+
+
+Sample Message Produced for successful/unsuccessful product on this SQS queue:
+
+
+
+[{'date': '2023-12-05 12:53:03.478528', 'userid': '3195', 'seller_id': 'AQ934580H673T', 'sku': 'NW-H5B6-X3ZT', 'asin': 'B01NCK0HCP', 'old_price': 214.82, 'new_price': 214.75, 'repricer_min': 207.95, 'repricer_max': 239.95, 'strategy_id': 2, 'condition': 'new', 'repricer_type': 'REPRICER', 'market': 'UK', 'repricer_message': 'Strategy 2, compete with LOWEST_FBA_PRICE, beat by 0, Applied strategy WIN_BUYBOX, Since Product is out of range, the min_price_rule : MATCH_COMPETITOR is applied. So Product price updated to 214.75.', 'price_type': None, 'success': True, 'error': None}]
+
+
+Message (in case of Inventory Age):
+
+
+
+[{'date': '2023-12-05 12:53:03.478528', 'userid': '3195', 'seller_id': 'AQ934580H673T', 'sku': 'NW-H5B6-X3ZT', 'asin': 'B01NCK0HCP', 'old_price': 214.82, 'new_price': 214.75, 'repricer_min': 207.95, 'repricer_max': 239.95, 'strategy_id': 2, 'condition': 'new', 'repricer_type': 'REPRICER', 'market': 'UK', 'repricer_message': 'Inventory Age Rule Applied! Strategy 2, compete with LOWEST_FBA_PRICE, beat by 0, Applied strategy WIN_BUYBOX, Since Product is out of range, the min_price_rule : MATCH_COMPETITOR is applied. So Product price updated to 214.75.', 'price_type': None, 'success': True, 'error': None}]
+
+
+
+
+
+
+
+Sample output for price change logs:
+
+
+
+Keys
+
+Values
+
+Description
+
+date
+
+2023-10-18 08:52:01.477812
+
+Not null
+
+userid
+
+1433
+
+Not null
+
+seller_id
+
+AQ934580H673T
+
+Not null
+
+sku
+
+QA-L2F8-RD1K
+
+Not null
+
+asin
+
+B00ZVGB1KG
+
+Not null
+
+old_price
+
+30.71
+
+Not null
+
+new_price
+
+29.5
+
+Details given below
+
+repricer_min
+
+25.5
+
+If min_price is not set in Redis, repricer_min null.
+
+repricer_max
+
+35.5
+
+If max_price is not set in Redis, repricer_max null.
+
+condition
+
+new
+
+Refer to the reference document for the mapping of item_condition <a href="https://docs.google.com/document/d/1VT0tmSC0OwpmfL_LBVEcOm5i1TNNUnQ2/edit#heading=h.n1vbou5qi3p6">Item Condition Mapping</a>
+
+repricer_type
+
+REPRICER
+
+The repricer_type can have two values:
+
+"MANUAL" for cases where repricing is forced.
+
+"REPRICER" for cases where repricing is performed through Core engine (Repricer)
+
+price_type
+
+null
+
+Detail given below
+
+market
+
+UK
+
+Asin’s marketplace 
+
+success
+
+true
+
+The success field can be either "True" or "False":
+
+"True" indicates that the product price has been successfully updated on Amazon.
+
+"False" indicates that the product price was not successfully updated on Amazon.
+
+error
+
+null
+
+The error field can have one of two values:
+
+null, which is used when success is True, signifying that there is no error.
+
+"message", which is used when success is False and provides a detailed description explaining why the price was not updated on Amazon.
+
+
+Sample error message for Standard and B2B are given below
+
+repricer_message
+
+null
+
+“Strategy 1, compete with LOWEST_PRICE, beat by 0.1, Applied strategy WIN_BUYBOX. So Product price updated to 12.1”
+
+This field encapsulates detailed information regarding the repricing procedure. For instance, it outlines Strategy 1, where the product competes with the LOWEST_PRICE and strategically beat by 0.1. The strategy applied in this scenario is WIN_BUYBOX. Consequently, the product's price is dynamically adjusted to 12. Thus, the key provides comprehensive insights into the strategy number, competitive value, rule , the strategy applied, and the resulting updated product price.
+
+If Inventory age rule is applied then we will get the following message:
+
+“Inventory Age Rule Applied! Strategy 2, compete with LOWEST_PRICE, beat by 0.0, Applied strategy WIN_BUYBOX.Since Product is out of range. the min_price_rule: JUMP_TO_MIN is applied. So Product price updated to 53.45.”
+
+
+
+For the standard case,the following guidelines apply:
+
+1)	When repricing a standard product, the price_type is null.
+
+2)	Sample error message for Standard Product:
+”The Message/Price/StandardPrice field contains an invalid   value: 0.The value is lower than the minimum allowed: 0.01”.
+
+
+
+
+For the B2B Case,the following guidelines apply:
+
+1)	The new_price field is null when there are no competitors. The same concept applies to the B2B tier new_price, in which case we submit the old_price if there are no competitors for B2B. Conversely, if there are competitors for B2B but not for the tier (or vice versa), we submit the old_price to the feed, as we don't have new_price. Repricing continues in these cases, as we might have competitors for B2B tier, so we submit the same listed_price for B2B and the updated_price for B2B tier.
+
+
+
+2)	The price_type is set to "b2b" when repricing a B2B product. For different tiers, it takes on specific values:
+
+	a)	For Tier 1, it is "quantity_Discount_1".
+
+	b)	For Tier 2, it is "quantity_Discount_2".
+
+	c)	For Tier 3, it is "quantity_Discount_3".
+
+	d)	For Tier 4, it is "quantity_Discount_4".
+
+	e)	For Tier 5, it is "quantity_Discount_5".
+
+3)	Sample error message B2B Product:
+“The value in the \"Message/Price/BusinessPrice\" (60.0) field must be greater than \"Message/Price/QuantityPrice/QuantityPrice1\" (75.0)”
+
+Price Type  mapping:
+
+
+
+Price Type 
+
+Mapping
+
+null
+
+standard
+
+ b2b
+
+B2B 
+
+quantity_Discount_1
+
+Tier 1
+
+quantity_Discount_2
+
+Tier 2
+
+quantity_Discount_3
+
+Tier 3
+
+quantity_Discount_4
+
+Tier 4
+
+quantity_Discount_5
+
+Tier 5
+
+
+
+Repricer Alerts:
+
+
+
+Topic: ah-repricer-alerts
+
+Host: 92.119.129.177
+
+Port: 31483
+
+
+
+
+
+
+
+
+
+This topic serves as a notification system for users, informing them of important events and issues related to their repricing activities. It encompasses various alerts, including:
+
+
+
+1)	Credential Verification: Users will receive alerts if their credentials are found to be invalid, ensuring they are promptly aware of the issue.
+
+
+Sample message for invalid credentials:
+
+{
+
+        "repricer_service": "DEFAULT SERVICE",
+
+        "data": [
+
+            {"seller_id":A2U504IZRVFHEQ,
+
+             "issues": [{"error": "INVALID_CREDENTIALS", "message":User may have revoked or didn't grant the permission
+
+, "data": []}]
+
+             }
+
+        ]
+
+    }
+
+
+
+
+
+
+
+2)	Feed Submission Errors: In the event of any errors occurring during the submission of feeds, users will be promptly notified through this topic, ensuring that they can take necessary actions.
+
+Sample message for feed submission error:
+
+
+
+{
+
+  'repricer_service': 'FEEDSUBMISSION',
+
+  'data': [
+
+    {
+
+      'seller_id': 'A25M6ZYMJHWYLU',
+
+      'issues': [
+
+        {
+
+          'error': 'INVALID CREDENTIALS',
+
+          'message': "The request has an invalid grant parameter : refresh_token. User may have revoked or didn't grant the permission.",
+
+          'data': [
+
+            
+
+          ]
+
+        }
+
+      ]
+
+    }
+
+  ]
+
+}
+
+
+
+
+
+
+
+
+
+3)	Hourly Error Feed Updates: Users will receive regular updates on error feeds every hour, helping them stay on top of any ongoing issues.
+
+Sample message for hourly feed updates:
+
+
+
+{
+
+  'repricer_service': 'FEEDSUBMISSION',
+
+  'data': [
+
+    {
+
+      'seller_id': 'A25M6ZYMJHWYLU',
+
+      'issues': [
+
+        {
+
+          'error': 'INVALID CREDENTIALS',
+
+          'message': "The request has an invalid grant parameter : refresh_token. User may have revoked or didn't grant the permission.",
+
+          'data': [
+
+            
+
+          ]x
+
+        }
+
+      ]
+
+    },
+
+    {
+
+      'seller_id': 'TEST6ZYMJHWYMM',
+
+      'issues': [
+
+        {
+
+          'error': 'INVALID CREDENTIALS',
+
+          'message': "The request has an invalid grant parameter : refresh_token. User may have revoked or didn't grant the permission.",
+
+          'data': [
+
+            
+
+          ]
+
+        }
+
+      ]
+
+    }
+
+  ]
+
+}
+
+
+
+</pre>
+</body>
+</html>

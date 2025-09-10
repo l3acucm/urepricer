@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Repricer Deployment</title>
+</head>
+<body>
+    <pre>Kubernetes Cluster setup using kubeadm with Calico:
+
+Step1: Prepare nodes
+
+>  nano /etc/host
+
+
+Step2: Disable swap
+
+> swapoff -a
+
+Step3: Set up Forwarding IPv4 and letting iptables see bridged traffic
+
+> cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+
+Overlay
+
+Br_netfilter
+EOF
+
+> sudo modprobe overlay
+> sudo modprobe br_netfilter
+
+# sysctl params required by setup, params persist across reboot
+
+> cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-iptables  = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward                 = 1
+EOF
+
+
+# Apply sysctl params without reboot
+
+> sudo sysctl --system
+
+Step 4: Update system and install basic utilities for further installation
+
+> sudo apt-get update
+> sudo apt-get install -y apt-transport-https ca-certificates curl
+
+Step 5: Download the Google Cloud public signing key
+
+
+
+> sudo mkdir /etc/apt/keyrings
+> sudo curl -fsSLo /etc/apt/keyrings/kubernetes-archive-keyring.gpg <a href="https://packages.cloud.google.com/apt/doc/apt-key.gpg">https://packages.cloud.google.com/apt/doc/apt-key.gpg</a>
+
+
+
+Step 6: Add the Kubernetes apt repository
+
+> echo "deb [signed-by=/etc/apt/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+
+
+
+Step 7: Update apt package index, install kubelet, kubeadm, kubectl and docker.io, and pin their version
+
+> sudo apt-get update
+
+> sudo apt-get install -y kubelet=1.26.5-00 kubeadm=1.26.5-00 kubectl=1.26.5-00 docker.io
+
+
+> sudo apt-mark hold kubelet kubeadm kubectl docker.io
+
+
+Step 8: Set the cgroup driver for runc to systemd required for the kubelet
+
+> sudo mkdir /etc/containerd
+
+
+> sudo containerd config default > /etc/containerd/config.toml
+
+
+>sudo sed -i 's/            SystemdCgroup = false/            SystemdCgroup = true/' /etc/containerd/config.toml
+
+
+> sudo systemctl restart containerd
+> sudo systemctl restart kubelet
+
+
+
+Step 9: Initialize k8s cluster with user defined network 
+
+> kubeadm config images pull
+> kubeadm init --pod-network-cidr=192.168.0.0/16
+
+
+
+Step 10: Setup kubectl for user on master node
+
+> mkdir -p $HOME/.kube
+> sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+> sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+
+
+Step 11: Setup Calico SDN
+
+> kubectl create -f
+https://raw.githubusercontent.com/projectcalico/calico/v3.26.1/manifests/tigera-operator.yaml
+
+> Curl <a href="https://raw.githubusercontent.com/projectcalico/calico/v3.26.1/manifests/custom-re">https://raw.githubusercontent.com/projectcalico/calico/v3.26.1/manifests/custom-re</a> sources.yaml -O
+
+> kubectl create -f custom-resources.yaml
+
+
+Step 12: Join worker node(s) (Child node: 92.119.129.139)
+
+>  kubeadm join 10.0.0.2:6443 --token ndi3ae.ujwfcuais8zm2cyn --discovery-token-ca-cert-hash sha256:fc6c1094159833bf95a3fcb7d49960026e4ddad56f8648b94240cd1c867b2f6b
+
+
+Step 13 (Optional): If you need to generate token for kubeadm join command
+
+> kubeadm token create --print-join-command 
+
+
+Step 14: Watch till all CNI related pods are up and running
+
+> watch -n5 kubectl get po -A
+
+
+
+
+
+Kafka Installation:
+
+
+
+Step 1. Download the Kafka binary distribution:
+
+   - Go to the Kafka downloads page: <a href="https://kafka.apache.org/downloads">https://kafka.apache.org/downloads</a>
+
+   - Select the version you want to download.    
+
+   - Click on the download link for the binary distribution (.tgz file) of the desired version.
+
+Step 2. Extract the downloaded archive:
+
+   - Move the downloaded file to the directory where you want to install Kafka. For example, you can move it to the directory:
+
+   - Extract the contents of the Kafka archive:
+
+>      sudo tar -xzf kafka_<version>.tgz
+
+
+
+   - Rename the extracted Kafka directory to a more generic name:
+
+>     sudo mv kafka_<version> kafka
+
+Step 3. Start ZooKeeper:
+
+ - Kafka relies on ZooKeeper for coordination.   
+
+ - Navigate to the Kafka installation directory if you are not already in it:
+
+
+
+> cd /kafka
+
+
+
+ - Start ZooKeeper by running the following command:
+
+> bin/zookeeper-server-start.sh config/zookeeper.properties
+
+
+
+Step 4. Start Kafka:
+
+   - Open another terminal.
+
+   - Navigate to the Kafka installation directory if you are not already in it:
+
+     cd /kafka
+
+   - Start the Kafka broker by running the following command:
+
+> bin/kafka-server-start.sh config/server.properties
+
+ 
+
+   Kafka will start and connect to the running ZooKeeper instance.
+
+Step 5. Test Kafka:
+
+   - Create a topic to test Kafka. Open a new terminal
+
+   - Navigate to the Kafka installation directory if you are not already in it:
+
+> cd /kafka
+
+
+
+ - Run the following command to create a topic named "test-topic" with a single partition and replication factor of 1:
+
+> bin/kafka-topics.sh --create --topic test-topic --partitions 1 --replication-factor 1 --bootstrap-server localhost:9092
+
+
+
+ - Verify that the topic has been created:
+
+> bin/kafka-topics.sh --list --bootstrap-server localhost:9092 
+
+
+
+Monitor the status and description of a Kafka consumer group:
+
+
+> watch -n 2 bin/kafka-consumer-groups.sh --describe --group my_consumer_group --bootstrap-server 92.119.129.139:9092
+
+
+
+
+
+Docker Commands:
+
+Build docker image:
+
+-To create a Docker image, use the following command, specifying the desired tag "core-engine:latest," and the current directory (denoted by ".") as the build context
+
+> docker build -t core-engine:latest .
+
+
+
+Docker run image:
+
+-To execute the Docker image in an interactive mode, utilize the subsequent command with the "core-engine:latest" tag
+
+> docker run -it core-engine:latest
+
+
+
+Push Image to docker hub:
+
+To upload the Docker image to Docker Hub, employ the subsequent command, ensuring the image is tagged as "core-engine:latest"
+
+> docker push core-engine:latest
+
+
+
+
+
+Helm Commands
+
+
+
+Create custom Helm Chart:
+
+To create a custom Helm chart for the "ah-core-engine" application, execute the following command
+
+> helm create ah-core-engine
+
+
+
+Update values.yaml:
+
+To customize the configuration for the "ah-core-engine" Helm chart,elm upgrade ah-core-engine ./ah-core-engine modify the values.yaml file to reflect the desired settings
+
+----media/image1.png----
+
+Install helm chart with updated values.yaml
+
+To deploy the "ah-core-engine" application using the custom configuration provided in the updated values.yaml file, utilize the following command
+
+> helm install chart-core-engine ah-core-engine/ --values ah-core-engine/values.yaml
+
+List all helm charts:
+
+To obtain a comprehensive list of all installed Helm charts, please use the following command
+
+> helm list
+
+
+Upgrade a deployed Helm release:
+
+> h
+
+
+
+
+
+
+Pods Command: 
+
+List of all pods:
+
+To view a concise list of all pods within the cluster, execute the command
+
+> kubectl get pods
+
+Detail description of pods:
+
+For a comprehensive view of a specific pod's details, including its metadata, status, and events, use the command
+
+> kubectl describe pods
+
+View logs of pod:
+
+To observe real-time logs of a particular pod, use the command
+
+> kubectl logs -f podname
+
+
+View all running services:
+
+To retrieve a comprehensive list of all running services, including pods, deployments, and more, issue the command
+
+> kubectl get all
+
+
+
+Login to a specific container:
+
+>  kubectl exec -it pod_name -- /bin/bash
+
+
+
+Scale the number of replicas of a specific deployment:
+
+>  kubectl scale deployment ah-core-engine --replicas=2
+
+
+
+
+
+
+
+Kubectl commands to check the cluster architecture. 
+
+
+
+Check All the namespaces of cluster 
+
+
+
+kubectl get ns
+
+
+
+Get all resources in a cluster
+
+
+
+kubectl get all -A
+
+
+
+Get all the pods in specific namespace
+
+
+
+kubectl get pods -n <namespace>
+
+
+
+Get service of all namespaces
+
+
+
+kubectl get svc -A
+
+
+
+Get all cronjobs in cluster 
+
+
+
+kubectl get cronjob -A
+
+
+
+
+
+Get All pods in a cluster
+
+
+
+kubectl get pods -A
+
+
+
+Get all pods in a specific namespace
+
+
+
+kubectl get pods -n <namespace
+
+
+
+Get all services in a specific namespace
+
+
+
+kubectl get svc -n <namespace>
+
+
+
+Get all deployments in a specific namespace
+
+
+
+kubectl get deploy -n <namespace>
+
+To Access shell of containers/pod
+
+
+
+kubectl exec -it <pod-name> -n <namespace> /bin/bash
+
+
+
+To check the logs of specific container
+
+
+
+	kubectl logs -f <pod-name> -n <namespace> 
+
+
+
+Currently available namespaces and their description
+
+	Calico-apiserver: It serves as the built-in namespace within the Kubernetes cluster,    housing the Calico services responsible for ensuring node-to-node communication.
+
+
+
+Calico-system: Another built-in namespace of Kubernetes, which plays a role in facilitating communication.
+
+
+
+Kube-system: This is the core built-in namespace of Kubernetes, where critical services are operated. These services include aspects such as service name resolution, the etcd service, and various other crucial functions for Kubernetes operations.
+
+
+
+
+
+
+
+</pre>
+</body>
+</html>

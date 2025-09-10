@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Repricer Exception Handling</title>
+</head>
+<body>
+    <pre>Core Engine Exception Handling
+
+General Exceptions:
+
+Core Engine Raising Exception for
+
+1)	Data against “ASIN” not available in redis:
+
+Skipping Repricing! (Listing Data not available in Cache)
+
+
+
+2)	“strategy_id” is missing in listing data:
+
+Strategy is not present in cache. returning...
+
+
+
+3)	“strategy_id” is None in listing data:
+
+Strategy is not present in cache. returning...
+
+
+
+
+
+Standard Repricing Exceptions:
+
+Core Engine Raising Exception for standard product repricing:
+
+1)	If our seller offer the lowest price (in case compete_with: LOWEST_PRICE):
+
+Skipping Repricing! (Our seller offers the Lowest pricing)
+
+2)	If our seller offer the lowest fba price (in case compete_with: LOWEST_FBA_PRICE):
+
+Skipping Repricing! (Our seller offers the Lowest pricing)
+
+3)	If our seller have the buy box (in case compete_with: MATCH_BUYBOX):
+
+Skipping Repricing! (Our seller have the buy box)
+
+4)	If competitor price not found:
+
+Skipping Repricing! (Competitor Not Found)
+
+5)	If min_price equal to max_price (if available):
+
+Skipping Repricing! (Min price equal to Max price)
+
+6)	If inventory_quantity is 0 or None:
+
+Skipping Repricing! (Inventory Quantity is zero(0))
+
+7)	If updated_price is None or less than equal to zero (0):
+
+Skipping Repricing! (Update Price ({new_price}) is None or Less than zero)
+
+Strategies Exception for min_price_rule and max_price_rule. You can refer to <a href="https://docs.google.com/document/d/1NyS8KJHv_trSTZ_rlFIF3fv8PLFsZZ3lv5P9MdCEZG0/edit?usp=sharing">Strategy Properties</a> to check properties and default values
+
+8)	If min_price_rule is not set in strategy or unknown strategy for that property is set (in case updated_price < min_price):
+
+Rule is not set or Method '{rule}' is not defined...
+
+9)	If “JUMP_TO_MIN” is set for min_price_rule (in case updated_price < min_price):
+
+Rule is set to jump_to_min, but min price is missing...
+
+10)	If “JUMP_TO_MAX” is set for min_price_rule (in case updated_price < min_price):
+
+Rule is set to jump_to_max, but max price is missing...
+
+11)	If “MATCH_COMPETITOR” is set for min_price_rule but competitor price is none (in case updated_price < min_price):
+
+Rule is set to competitor_price, but competitor price is missing...
+
+12)	If “DO_NOTHING” is set for min_price_rule (in case updated_price < min_price):
+
+Rule is set to do_nothing, therefore, skipping repricing...
+
+13)	 If “DEFAULT_PRICE” is set for min_price_rule but default_price is missing (in case updated_price < min_price):
+
+Rule is set to default_price, but default_price is missing...
+
+
+
+Business Repricing Exceptions:
+
+In the context of business repricing, when we say "Skipping Repricing!", it indicates to ignore the processing for a specific business or tier. This action involves excluding that particular repricing process, and if there are any exceptional cases relevant to this choice, those will be mentioned in the message. This approach is taken because there are often multiple prices that need to be adjusted in the case of B2B.
+
+ 
+
+1)	If “b2b_rules” is missing in listing data:
+
+b2b_rules is missing in Listing Data
+
+
+
+2)	If our seller have the buy box (in case compete_with: MATCH_BUYBOX):
+
+Skipping Repricing! (Our seller have the buy box for this Quantity)
+
+3)	If our seller have the buy box in tier quantity match case (in case compete_with: MATCH_BUYBOX):
+
+Skipping Repricing! (Our seller have the buy box for this Quantity)
+
+4)	If tier quantity is missing but listing price is available: 
+
+Skipping Repricing! (Tier Quantity is Missing)
+
+
+
+Strategies Exception for min_price_rule and max_price_rule. You can refer to <a href="https://docs.google.com/document/d/1NyS8KJHv_trSTZ_rlFIF3fv8PLFsZZ3lv5P9MdCEZG0/edit?usp=sharing">Strategy Properties</a> to check properties and default values
+
+5)	If min_price_rule is not set in strategy or unknown strategy for that property is set (in case updated_price < min_price):
+
+Rule is not set or Method '{rule}' is not defined...
+
+6)	If “JUMP_TO_MIN” is set for min_price_rule (in case updated_price < min_price):
+
+Rule is set to jump_to_min, but min price is missing...
+
+7)	If “JUMP_TO_MAX” is set for min_price_rule (in case updated_price < min_price):
+
+Rule is set to jump_to_max, but max price is missing...
+
+8)	If “MATCH_COMPETITOR” is set for min_price_rule but competitor price is none (in case updated_price < min_price):
+
+Rule is set to competitor_price, but competitor price is missing...
+
+9)	If “DO_NOTHING” is set for min_price_rule (in case updated_price < min_price):
+
+Rule is set to do_nothing, therefore, skipping repricing...
+
+10)	 If “DEFAULT_PRICE” is set for min_price_rule but default_price is missing (in case updated_price < min_price):
+
+Rule is set to default_price, but default_price is missing...
+
+</pre>
+</body>
+</html>

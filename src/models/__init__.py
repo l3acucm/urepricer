@@ -1,27 +1,17 @@
 """
-SQLAlchemy models for Arbitrage Hero.
-Consolidates all database models from the original Django modules.
+Redis OM models for Arbitrage Hero.
+Uses Redis as the primary database with Redis OM for object mapping.
 """
 
-# Import all models to ensure they're registered with SQLAlchemy
-from .accounts import UserAccount, PriceReset
-from .feeds import Feed, Product, PriceChangeLog, RepricingStrategy
-from .listings import ProductListing, CompetitorData, ListingAlert
+# Import Redis OM models
+from .products import ProductListing, B2BTier, PriceValidationError
 
 # Export all models for easy importing
 __all__ = [
-    # Account models
-    "UserAccount",
-    "PriceReset",
-    
-    # Feed models
-    "Feed", 
-    "Product",
-    "PriceChangeLog",
-    "RepricingStrategy",
-    
-    # Listing models
+    # Product models
     "ProductListing",
-    "CompetitorData", 
-    "ListingAlert",
+    "B2BTier",
+    
+    # Exceptions
+    "PriceValidationError",
 ]

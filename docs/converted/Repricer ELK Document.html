@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Repricer ELK Document</title>
+</head>
+<body>
+    <pre>AH-REPRICER								ELK Documentation
+
+ELK:
+
+ELK stands for Elasticsearch Logstash and Kibana. We need to send logs to logstash using Filebeats. Logstash will process the data and send it to Elasticsearch where it will be stored. We can perform queries on Elasticsearch data. In order to visualize data we will use Kibana.
+
+Configuring Elasticsearch, Logstash and Kibana on production using docker:
+
+docker-compose.yml
+
+version: '3.6'
+
+services:
+
+  Elasticsearch:
+
+    image: elasticsearch:7.17.0
+
+    container_name: elasticsearch
+
+    restart: always
+
+    volumes:
+
+    - elastic_data:/usr/share/elasticsearch/data/
+
+    environment:
+
+      ES_JAVA_OPTS: "-Xmx256m -Xms256m"
+
+      discovery.type: single-node    
+
+      xpack.security.enabled: "true"
+
+    ports:
+
+    - '9200:9200'
+
+    - '9300:9300'
+
+    networks:
+
+      - elk
+
+  Logstash:
+
+    image: logstash:7.17.0
+
+    container_name: logstash
+
+    restart: always
+
+    volumes:
+
+    - ./logstash/:/logstash/
+
+    command: logstash -f /logstash/logstash.conf 
+
+    ports:
+
+    - '5044:5044'
+
+    - '9600:9600'
+
+    environment:
+
+      LS_JAVA_OPTS: "-Xmx256m -Xms256m"    
+
+    networks:
+
+      - elk
+
+  Kibana:
+
+    image: kibana:7.17.0
+
+    container_name: kibana
+
+    restart: always       
+
+    ports:
+
+    - '5601:5601'
+
+    environment:
+
+      - ELASTICSEARCH_URL=http://elasticsearch:9200  
+
+      - ELASTICSEARCH_USERNAME=elastic
+
+      - ELASTICSEARCH_PASSWORD=repricer
+
+    depends_on:
+
+      - Elasticsearch  
+
+    networks:
+
+      - elk
+
+volumes:
+
+  elastic_data: {}
+
+networks:
+
+  elk:
+
+
+
+logstash.conf:
+
+input {
+
+  beats {
+
+    port => 5044
+
+  }
+
+}
+
+filter {
+
+  if "repricer_stats" in [log][file][path] {
+
+    mutate {
+
+      add_field => { "repricer_insight" => "true" }
+
+   }
+
+    grok {
+
+      match => { "message" => "%{TIMESTAMP_ISO8601:custom_timestamp}: %{GREEDYDATA:log_message}" }
+
+    }
+
+    date {
+
+      match => ["custom_timestamp", "yyyy-MM-dd HH:mm:ss.SSSSSS"]
+
+      target => "@timestamp"
+
+    }
+
+    mutate {
+
+      remove_field => ["custom_timestamp"]
+
+      rename => { "log_message" => "message" }
+
+      }
+
+  }
+
+  if "consume-payload" in [log][file][path] {
+
+    mutate {
+
+      add_field => { "service-name" => "core-engine" }
+
+    }
+
+    grok {
+
+      match => { "message" => "%{TIMESTAMP_ISO8601:log_timestamp} %{DATA:log_prefix} %{WORD:log_level} %{GREEDYDATA:log_message}" }
+
+    }
+
+    date {
+
+      match => [ "log_timestamp", "ISO8601" ]
+
+      target => "@timestamp"
+
+    }
+
+    mutate {
+
+      rename => { "log_message" => "message" }
+
+      remove_field => [ "log_timestamp", "log_prefix", "log_level" ]
+
+    }
+
+    grok {
+
+      match => { "message" => "ASIN: %{WORD:asin}" }
+
+    }
+
+    grok {
+
+      match => { "message" => "Repriced data: %{GREEDYDATA:repriced_data}" }
+
+    }
+
+    grok {
+
+      match => { "message" => "feed_id is :  %{GREEDYDATA:feed_submission_id}" }
+
+    }
+
+    grok {
+
+      match => { "message" => "'seller_id': '%{WORD:seller_id}'" }
+
+    }
+
+  }
+
+  else if "feedsubmission" in [log][file][path] {
+
+    mutate {
+
+      add_field => { "service-name" => "feed-submission" }
+
+    }
+
+    grok {
+
+      match => { "message" => "%{TIMESTAMP_ISO8601:custom_timestamp}: %{GREEDYDATA:log_message}" }
+
+    }
+
+    date {
+
+      match => ["custom_timestamp", "yyyy-MM-dd HH:mm:ss.SSSSSS"]
+
+      target => "@timestamp"
+
+    }
+
+    mutate {
+
+      remove_field => ["custom_timestamp"]
+
+      rename => { "log_message" => "message" }
+
+      }
+
+    grok {
+
+      match => { "message" => "Produced feeds: %{GREEDYDATA:produced_feeds}" }
+
+    }
+
+    grok {
+
+      match => { "message" => "feed_id is :  %{GREEDYDATA:feed_submission_id}" }
+
+    }
+
+    grok {
+
+      match => { "message" => "<SKU>%{WORD:sku}</SKU>" }
+
+    }
+
+    grok {
+
+      match => { "message" => "<MerchantIdentifier>%{WORD:merchant_identifier}</MerchantIdentifier>" }
+
+    }
+
+    grok {
+
+      match => { "message" => "'seller_id': '%{WORD:seller_id}'" }
+
+    }
+
+    grok {
+
+      match => { "message" => "'asin': '%{WORD:asin}'" }
+
+    }
+
+    grok {
+
+      match => { "message" => "'sku': '%{WORD:sku}'" }
+
+    }
+
+    grok {
+
+      match => { "message" => "'repricer_type': '%{WORD:repricer_type}'" }
+
+    }
+
+    grok {
+
+      match => { "message" => "Product: %{GREEDYDATA:product_data}" }
+
+    }
+
+  }
+
+  else if "worker" in [log][file][path] {
+
+    mutate {
+
+      add_field => { "service-name" => "celery-worker" }
+
+    }
+
+    grok {
+
+      match => { "message" => "%{TIMESTAMP_ISO8601:custom_timestamp}: %{GREEDYDATA:log_message}" }
+
+    }
+
+    date {
+
+      match => ["custom_timestamp", "yyyy-MM-dd HH:mm:ss.SSSSSS"]
+
+      target => "@timestamp"
+
+    }
+
+    mutate {
+
+      remove_field => ["custom_timestamp"]
+
+      rename => { "log_message" => "message" }
+
+      }
+
+  }
+
+  else if "listing-data" in [log][file][path] {
+
+    mutate {
+
+      add_field => { "service-name" => "listing" }
+
+    }
+
+    grok {
+
+      match => { "message" => "%{TIMESTAMP_ISO8601:log_timestamp} %{DATA:log_prefix} %{WORD:log_level} %{GREEDYDATA:log_message}" }
+
+    }
+
+    date {
+
+      match => [ "log_timestamp", "ISO8601" ]
+
+      target => "@timestamp"
+
+    }
+
+    mutate {
+
+      rename => { "log_message" => "message" }
+
+      remove_field => [ "log_timestamp", "log_prefix", "log_level" ]
+
+    }
+
+    grok {
+
+      match => { "message" => "Received message: %{GREEDYDATA:received_message}" }
+
+    }
+
+    grok {
+
+      match => { "message" => "'strategy_id': '%{WORD:strategy_id}'" }
+
+    }
+
+    grok {
+
+      match => { "message" => "'listed_price': '%{NUMBER:listed_price}'" }
+
+    }
+
+  }
+
+  else if "delete-data" in [log][file][path] {
+
+    mutate {
+
+      add_field => { "service-name" => "default" }
+
+    }
+
+    grok {
+
+      match => { "message" => "%{TIMESTAMP_ISO8601:log_timestamp} %{DATA:log_prefix} %{WORD:log_level} %{GREEDYDATA:log_message}" }
+
+    }
+
+    date {
+
+      match => [ "log_timestamp", "ISO8601" ]
+
+      target => "@timestamp"
+
+    }
+
+    mutate {
+
+      rename => { "log_message" => "message" }
+
+      remove_field => [ "log_timestamp", "log_prefix", "log_level" ]
+
+    }
+
+  }  
+
+  else if "user-data" in [log][file][path] {
+
+    mutate {
+
+      add_field => { "service-name" => "default" }
+
+    }    
+
+    grok {
+
+      match => { "message" => "%{TIMESTAMP_ISO8601:log_timestamp} %{DATA:log_prefix} %{WORD:log_level} %{GREEDYDATA:log_message}" }
+
+    }
+
+    date {
+
+      match => [ "log_timestamp", "ISO8601" ]
+
+      target => "@timestamp"
+
+    }
+
+    mutate {
+
+      rename => { "log_message" => "message" }
+
+      remove_field => [ "log_timestamp", "log_prefix", "log_level" ]
+
+    }
+
+  }
+
+  if "skipping" in [message] {
+
+    mutate {
+
+      add_field => { "skip_repricing" => "true" }
+
+    }
+
+  }
+
+  else if "skipped" in [message] {
+
+    mutate {
+
+      add_field => { "skip_repricing" => "true" }
+
+    }
+
+  }
+
+  if "Alert" in [message] {
+
+    mutate {
+
+      add_field => { "repricer_alert" => "true" }
+
+    }
+
+  }
+
+  
+
+  if [fields][index] == "repricer" {
+
+    mutate {
+
+      add_field => { "[@metadata][index]" => "repricer" }
+
+    }
+
+  } 
+
+  if [fields][index] == "repricer_default" {
+
+    mutate {
+
+      add_field => { "[@metadata][index]" => "repricer_default" }
+
+    }
+
+  } 
+
+  if [fields][index] == "repricer_listing" {
+
+    mutate {
+
+      add_field => { "[@metadata][index]" => "repricer_listing" }
+
+    }
+
+  } 
+
+  if [fields][index] == "repricer_feedsubmission" {
+
+    mutate {
+
+      add_field => { "[@metadata][index]" => "repricer_feedsubmission" }
+
+    }
+
+  }
+
+  if [fields][index] == "repricer_celery" {
+
+    mutate {
+
+      add_field => { "[@metadata][index]" => "repricer_celery" }
+
+    }
+
+  } 
+
+  if [fields][index] == "repricer_core-engine" {
+
+    mutate {
+
+      add_field => { "[@metadata][index]" => "repricer_core-engine" }
+
+    }
+
+  } 
+
+  
+
+  else if [fields][index] == "repricer_insights" {
+
+    mutate {
+
+      add_field => { "[@metadata][index]" => "repricer_insights" }
+
+    }
+
+    grok {
+
+     match => {"message" => "feed_ready_notifications_count -> %{WORD:feed_ready_notifications_count},"}
+
+   }
+
+    grok {
+
+     match => {"message" => "any_offer_change_notifications_count -> %{WORD:any_offer_change_notifications_count},"}
+
+   }
+
+   grok {
+
+     match => {"message" => "output_processed_data_count -> %{WORD:output_processed_data_count},"}
+
+   }
+
+   grok {
+
+     match => {"message" => "repriced_products_topic_count -> %{WORD:repriced_products_topic_count},"}
+
+   }
+
+   grok {
+
+     match => {"message" => "repricer_topic_messages_count -> %{WORD:repricer_topic_messages_count},"}
+
+   }
+
+   grok {
+
+     match => {"message" => "delete_topic_messages_count -> %{WORD:delete_topic_messages_count},"}
+
+   }
+
+   grok {
+
+     match => {"message" => "alerts_topic_messages_count -> %{WORD:alerts_topic_messages_count},"}
+
+   }
+
+   grok {
+
+     match => {"message" => "listing_topic_messages_count -> %{WORD:listing_topic_messages_count},"}
+
+   }
+
+   grok {
+
+     match => {"message" => "user_creds_topic_messages_count -> %{WORD:user_creds_topic_messages_count}"}
+
+   }
+
+  }
+
+  mutate {
+
+   convert => { "feed_ready_notifications_count" => "integer" }
+
+   convert => { "any_offer_change_notifications_count" => "integer" }
+
+   convert => { "output_processed_data_count" => "integer" }
+
+   convert => { "repriced_products_topic_count" => "integer" }
+
+   convert => { "delete_topic_messages_count" => "integer" }
+
+   convert => { "alerts_topic_messages_count" => "integer" }
+
+   convert => { "listing_topic_messages_count" => "integer" }
+
+   convert => { "user_creds_topic_messages_count" => "integer" }
+
+   convert => { "repricer_topic_messages_count" => "integer" }
+
+   remove_field => ["[agent][id]"] 
+
+   remove_field => ["[agent][version]"]
+
+   remove_field => ["[agent][type]"]
+
+   remove_field => ["[agent][name]"]
+
+   remove_field => ["[host][name]"]
+
+   remove_field => ["[tags]"]
+
+   remove_field => ["[fields][index]"]
+
+   remove_field => ["[@version]"] 
+
+   remove_field => ["[agent][ephemeral_id]"]
+
+   remove_field => ["[ecs][version]"]
+
+   remove_field => ["[log][offset]"]
+
+  }
+
+}
+
+output {
+
+  elasticsearch {
+
+    hosts => ["http://93.92.112.38:9200"]
+
+    index => "%{[@metadata][index]}"
+
+    user => "elastic"
+
+    password => "repricer"
+
+  }
+
+}
+
+
+
+Run the docker-compose:
+
+>>> docker-compose up
+>>> docker ps 
+
+filebeat.yml file:
+
+filebeat.inputs:
+
+  - type: log
+
+    enabled: true
+
+    paths:
+
+     - /usr/share/filebeat/logs/ah-authentication_consume-payload-msg-*/*/*.log
+
+     - /usr/share/filebeat/logs/ah-authentication_feedsubmission-ah-core-engine-*/*/*.log
+
+output.logstash:
+
+  hosts: ["93.92.112.38:5044"]
+
+Run the docker-compose of filebeat:
+
+>>> docker-compose up
+>>> docker ps 
+
+>>> sudo docker run --name=filebeat --detach --user=root \ --volume="/home/admin/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro" \ --volume="/var/log/pods/:/usr/share/filebeat/logs/:ro" \ docker.elastic.co/beats/filebeat:8.11.1
+
+Note: “In the last command we have given the path of the container after colon and before the colon we have given the path of the actual file. We must write the path of the container in the filebeat.yml file”
+In order to check whether the logstash, filebeat and elastic search are running access the following links:
+<a href="http://93.92.112.38:9600/">http://93.92.112.38:9200/</a> (Elasticsearch)
+
+<a href="http://93.92.112.38:5601/app/home#/">http://93.92.112.38:5601/app/home#/</a> (Kibana)
+
+<a href="http://93.92.112.38:9600/">http://93.92.112.38:9600/</a> (Logstash)
+
+Accessing Logs on Kibana:
+
+1)	Go to Stack Management
+			----media/image9.png----
+
+2)	Go to Index Management:
+			----media/image2.png----
+
+3)	Create an index (that index should be the same that you sent while running logstash):
+Note: If the index is passed through logstash configuration file then index would already be created
+			----media/image6.png----
+
+4)	Go to Data view and create one with name of the index you passed with * (e.g index*)
+			----media/image11.png----
+
+----media/image4.png----
+
+5)	Go to Discover on Analytics:
+			----media/image1.png----
+			
+
+6)	Select the Index from the following:
+		----media/image3.png----
+
+7)	View logs:
+----media/image8.png----
+
+
+
+Inorder to check whether we are getting our data in Elasticsearch we can execute the following query in kibana dev tools as well:
+
+----media/image10.png----
+
+
+
+Apply timing filter to view the latest logs accordingly:
+
+----media/image5.png----
+
+
+Set the time range here to search the logs accordingly:
+----media/image7.png----
+
+											QBatch</pre>
+</body>
+</html>

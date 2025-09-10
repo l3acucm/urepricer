@@ -5,7 +5,7 @@ Handles Amazon feed submission and product pricing data validation.
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 
 # Base schemas
@@ -25,7 +25,8 @@ class ProductBase(BaseModel):
     quantity: int = Field(default=1, ge=0, description="Product quantity")
     item_condition: Optional[str] = Field(None, max_length=20, description="Product condition")
     
-    @validator('item_condition')
+    @field_validator('item_condition')
+    @classmethod
     def validate_condition(cls, v):
         if v is not None:
             allowed_conditions = ['New', 'Used', 'Collectible', 'Refurbished']
@@ -33,10 +34,11 @@ class ProductBase(BaseModel):
                 raise ValueError(f'Item condition must be one of: {allowed_conditions}')
         return v
     
-    @validator('max_price')
-    def validate_price_range(cls, v, values):
-        if v is not None and 'min_price' in values and values['min_price'] is not None:
-            if v <= values['min_price']:
+    @field_validator('max_price')
+    @classmethod
+    def validate_price_range(cls, v, info):
+        if v is not None and hasattr(info, 'data') and info.data and 'min_price' in info.data and info.data['min_price'] is not None:
+            if v <= info.data['min_price']:
                 raise ValueError('Max price must be greater than min price')
         return v
 
@@ -94,7 +96,8 @@ class FeedUpdate(BaseModel):
     status: str = Field(..., description="Feed processing status")
     message: Optional[str] = Field(None, description="Status message from Amazon")
     
-    @validator('status')
+    @field_validator('status')
+    @classmethod
     def validate_status(cls, v):
         allowed_statuses = ['SUBMITTED', 'IN_PROGRESS', 'DONE', 'CANCELLED', 'FATAL']
         if v not in allowed_statuses:
@@ -186,21 +189,24 @@ class RepricingStrategyBase(BaseModel):
     enabled: bool = Field(default=True, description="Strategy enabled status")
     conditions: str = Field(default="New", description="Product conditions to apply strategy")
     
-    @validator('strategy_type')
+    @field_validator('strategy_type')
+    @classmethod
     def validate_strategy_type(cls, v):
         allowed_types = ['CHASE_BUYBOX', 'MAXIMIZE_PROFIT', 'ONLY_SELLER']
         if v not in allowed_types:
             raise ValueError(f'Strategy type must be one of: {allowed_types}')
         return v
     
-    @validator('compete_with')
+    @field_validator('compete_with')
+    @classmethod
     def validate_compete_with(cls, v):
         allowed_types = ['LOWEST_PRICE', 'LOWEST_FBA_PRICE', 'MATCH_BUYBOX']
         if v not in allowed_types:
             raise ValueError(f'Compete with must be one of: {allowed_types}')
         return v
     
-    @validator('conditions')
+    @field_validator('conditions')
+    @classmethod
     def validate_conditions(cls, v):
         allowed_conditions = ['New', 'Used', 'Collectible', 'Refurbished', 'All']
         if v not in allowed_conditions:

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Repricer Sample Feeds</title>
+</head>
+<body>
+    <pre>XML Feeds
+
+
+
+Standard
+
+
+
+<AmazonEnvelope>
+
+  <Header>
+
+    <DocumentVersion>1.01</DocumentVersion>
+
+    <MerchantIdentifier>A25M6ZYMJHWYLU</MerchantIdentifier>
+
+  </Header>
+
+  <MessageType>Price</MessageType>
+
+  <Message>
+
+    <MessageID>1</MessageID>
+
+    <Price>
+
+      <SKU>QA-L2F8-RD1K</SKU>
+
+      <StandardPrice currency="GBP">30.71</StandardPrice>
+
+    </Price>
+
+  </Message>
+
+</AmazonEnvelope>
+
+
+
+Business
+
+
+
+<AmazonEnvelope>
+
+  <Header>
+
+    <DocumentVersion>1.01</DocumentVersion>
+
+    <MerchantIdentifier>A25M6ZYMJHWYLU</MerchantIdentifier>
+
+  </Header>
+
+  <MessageType>Price</MessageType>
+
+  <Message>
+
+    <MessageID>1</MessageID>
+
+    <Price>
+
+      <SKU>QA-L2F8-RD1K</SKU>
+
+      <BusinessPrice>15.36</BusinessPrice>
+
+      <QuantityPriceType>fixed</QuantityPriceType>
+
+      <QuantityPrice>
+
+        <QuantityPrice1>12.0</QuantityPrice1>
+
+        <QuantityLowerBound1>3</QuantityLowerBound1>
+
+        <QuantityPrice2>100.0</QuantityPrice2>
+
+        <QuantityLowerBound2>5</QuantityLowerBound2>
+
+      </QuantityPrice>
+
+    </Price>
+
+  </Message>
+
+</AmazonEnvelope>
+
+
+
+Standard/Business
+
+
+
+<AmazonEnvelope>
+
+  <Header>
+
+    <DocumentVersion>1.01</DocumentVersion>
+
+    <MerchantIdentifier>A25M6ZYMJHWYLU</MerchantIdentifier>
+
+  </Header>
+
+  <MessageType>Price</MessageType>
+
+  <Message>
+
+    <MessageID>1</MessageID>
+
+    <Price>
+
+      <SKU>QA-L2F8-RD1K</SKU>
+
+      <StandardPrice currency="GBP">30.71</StandardPrice>
+
+      <BusinessPrice>15.36</BusinessPrice>
+
+      <QuantityPriceType>fixed</QuantityPriceType>
+
+      <QuantityPrice>
+
+        <QuantityPrice1>12.0</QuantityPrice1>
+
+        <QuantityLowerBound1>3</QuantityLowerBound1>
+
+        <QuantityPrice2>100.0</QuantityPrice2>
+
+        <QuantityLowerBound2>5</QuantityLowerBound2>
+
+      </QuantityPrice>
+
+    </Price>
+
+  </Message>
+
+</AmazonEnvelope>
+
+</pre>
+</body>
+</html>

@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Funtional Specification Document (Repricer) </title>
+</head>
+<body>
+    <pre>AH-Repricer						                           	       FS Document
+
+Arbitrage Repricer
+
+
+
+A quick overview
+
+The repricer microservices architecture project aims to create an independent and scalable system that automates product repricing on e-commerce platforms like Amazon. It encompasses tasks such as listing management, report generation, feed submission, user authentication, and strategic repricing. By focusing on efficiency and scalability, the project seeks to empower users with the tools needed to optimise pricing strategies and successfully navigate the ever-changing e-commerce environment.
+
+----media/image1.png----Project Module
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Listing Microservice
+
+Listing Microservice currently stores listing data and user-defined strategies in redis. Consumer, consume the data from the kafka topic and store its details in redis.
+
+Kafka Topic:
+
+Topic: "ah-repricer-listing-data"
+
+host: 92.119.129.177
+
+port: 31483
+
+
+
+Redis Cache:
+
+A unified Redis Cache serves as the repository for various types of data within the realm of the "AH REPRICER" microservices. This encompassing Redis Cache is responsible for housing essential information, including listing data, strategy data, the output generated through core-engine processing, and the management of Celery tasks. Notably, this single instance of Redis Cache is shared across all components of the "AH REPRICER" microservices, facilitating efficient and consistent data storage and retrieval throughout the system.
+Redis Detail: 
+
+host: 92.119.129.177
+
+master port: 31535
+replica port: 32351
+password: ***********
+
+
+
+Listing Data: 
+
+The format of the listing data accommodates both standard and business pricing for a single SKU. Therefore, each SKU can include standard price information as well as business price details under the designated "b2b_rules" key.
+
+Please refer to this document for listing data properties understanding. <a href="https://docs.google.com/document/d/1u0VTX4eDOQkQepVUKlfNHYRUQBL4eJeL/edit">Listing Properties</a>.
+
+
+
+asin: {
+
+    seller_id: {
+
+        sku: {
+
+            #Standard Product Data
+
+            strategy_id: 1
+
+            b2b_rules: {
+
+                #Business Product and Tiers Data
+
+                strategy: 2
+
+            }
+
+        }
+
+    }
+
+}
+
+
+
+Standard Product Data:
+
+{
+
+    "strategy_id": "1",
+
+    "listed_price": 45,
+
+    "default_price": 30,
+
+    "fullfilment_type": "AMAZON",
+
+    "max": 50,
+
+    "inventory_quantity": null,
+
+    "inventory_age": 0,
+
+    "item_condition": "new",
+
+    "updated_at": "2023-09-19T09:58:12.771641"
+
+}
+
+
+
+default_price: (optional) It will be considered in case min_price_rule or max_price_rule is set to “DEFAULT_PRICE”. 
+
+item_condition: If Item Condition is missing, the default value is picked. (default value: “NewItem”),
+
+inventory_quantity: If Inventory quantity is missing default value is picked (default value: None). 
+
+inventory_age: (optional, integer) If inventory age is missing, the default value is picked (default value: 0). It will only be applicable if it is greater than 0.
+
+
+
+Business Product and Tiers Data:
+
+"b2b_rules": {
+
+    "tiers": {
+
+        "3": {
+
+            "listed_price": 44.50,
+
+            "default_price": 30,
+
+            "min": 12,
+
+            "max": 30
+
+        }
+
+    },
+
+    "strategy_id": "2",
+
+    "listed_price": 45.00,
+
+    "default_price": 30,
+
+    "fullfilment_type": "AMAZON",
+
+    "max": 10,
+
+    "inventory_quantity": null,
+
+    "item_condition": "new"
+
+}
+
+
+
+Amazon permits a maximum of 5 tiers. Therefore, if a user provides quantity discounts, the "tiers" data can range from 1 to 5, depending on the number of quantity discounts a seller is making available.
+
+
+
+Sample Listing Data:
+
+"B00ZVGB1KG": {
+
+    "A25M6ZYMJHWYLU": {
+
+        "QA-L2F8-RD1K": {
+
+            "b2b_rules": {
+
+                "tiers": {
+
+                    "3": {
+
+                        "listed_price": 44.50,
+
+                        "default_price": 30,
+
+                        "min": 12,
+
+                        "max": 30
+
+                    }
+
+                },
+
+                "strategy_id": "2",
+
+                "listed_price": 45.00,
+
+                "default_price": 30,
+
+                "fullfilment_type": "AMAZON",
+
+                "max": 10,
+
+                "inventory_quantity": null,
+
+                "item_condition": "new"
+
+            },
+
+            "strategy_id": "1",
+
+            "listed_price": 45,
+
+            "default_price": 30,
+
+            "fullfilment_type": "AMAZON",
+
+            "max": 50,
+
+            "inventory_quantity": null,
+
+            "inventory_age": 0,
+
+            "status": "Active",
+
+            "item_condition": "new",
+
+            "updated_at": "2023-09-19T09:58:12.771641"
+
+        }
+
+    }   
+
+}
+
+
+
+We have implemented modifications to the listing data, specifically utilising the "tier quantity" as the key and introducing the "updated_at" field. These alterations are managed on our end, ensuring consistency in the format of listing data generated for Kafka topics.
+
+
+
+Sample Strategy Data:
+
+Please refer to this document for strategy properties understanding. <a href="https://docs.google.com/document/d/1hv7DhKFnI94u2_limXxe_lQHmrVe04Wg/edit">Strategy Properties</a>.
+
+"strategy.1": {
+
+    "compete_with": "MATCH_BUYBOX",
+
+    "beat_by": -0.1,
+
+    "min_price_rule": "JUMP_TO_MIN",
+
+    "max_price_rule": "JUMP_TO_MAX",
+
+    "b2b_compete_for": "LOW",
+
+    "b2b_beat_by_rule": "BEAT_BY"
+
+}
+
+
+
+Sample Strategy Data in case of Inventory age:
+
+"strategy.1": {
+
+    "compete_with": "MATCH_BUYBOX",
+
+    "beat_by": -0.1,
+
+    "min_price_rule": "JUMP_TO_MIN",
+
+    "max_price_rule": "JUMP_TO_MAX",
+
+    "b2b_compete_for": "LOW",
+
+    "b2b_beat_by_rule": "BEAT_BY",
+    "inventory_age_rules": {
+
+        "0-90": {
+
+            "strategy_id": 2
+
+        },
+
+        "91-180": {
+
+            "strategy_id": 3
+
+        },
+
+        "181-270": {
+
+            "strategy_id": 4
+
+        },
+
+        "271-365": {
+
+            "strategy_id": 5
+
+        },
+
+        "365+": {
+
+            "strategy_id": 6
+
+        }
+
+    }
+
+}
+
+
+When the inventory_age_rules key is present in the strategy, the product's inventory_age is compared to a range defined by the values in inventory_age_rules. If the product's inventory_age falls within the specified range and greater than 0 (zero), the corresponding strategy is assigned; otherwise, the strategy remains unchanged.
+
+Default Microservice
+
+The primary function of the default microservice is to store user credentials, authenticate user credentials, and initiate scheduled tasks through cron jobs using Celery.
+
+
+
+To facilitate the storage of user credentials, the microservice utilises a Kafka topic, where consumers are responsible for processing incoming messages. These messages will comprise a list of hashed dictionaries, each encompassing various sets of user credentials.
+
+Kafka Topic:
+
+Topic: "ah-repricer-creds"
+
+host: 92.119.129.177
+
+port: 31483
+
+
+
+Sample Message for User Credentials:
+
+[
+
+    {
+
+        "user_id": "1433",
+
+        "enabled": true,
+
+        “repricer_enabled”: true, 
+
+        "seller_id": "A25M6ZYMJHWYLU",
+
+        "refresh_token": "Atzr|IwEBIGZen5uEqhiU2ZwOxZb8s0g",
+
+        "marketplace_type": "UK"
+
+    },
+
+    {
+
+        "user_id": "1433",
+
+        "enabled": true,
+
+        "seller_id": "A2U504IZRVFHEQ",
+
+       “repricer_enabled”: true, 
+
+        "refresh_token": "Atzr|IwEBIPeNq0O1OFB4G-jUA515GvpMiVWjyQ0m",
+
+        "marketplace_type": "US"
+
+    }
+
+]
+
+
+
+To delete the user detail, listing data or strategy data a different kafka topic is used to consume the message to delete the details. 
+
+Kafka Topic:
+
+Topic: "ah-repricer-delete-data"
+
+host: 92.119.129.177
+
+port: 31483
+
+
+
+Sample Messages in kafka topic:
+
+For deleting listing data:
+
+[
+
+    {
+
+        "asin": "ASIN",
+
+        "seller_id": "SELLERID"
+
+    },
+
+    {
+
+        "asin": "ASIN",
+
+        "seller_id": "SELLERID",
+
+        "skus": ["SKU1"]
+
+    }
+
+]
+
+
+
+To remove a seller from the listing data, simply provide the "asin" and "seller_id" values, and the entire seller entry linked to that "asin" will be deleted. In the case of removing SKUs or a list of SKUs, provide the relevant "skus." This action will result in the deletion of the specified SKUs associated with the given "asin" and "seller_id."
+
+
+
+For deleting user:
+
+[
+
+    {
+
+        "user_id": 1344,
+        "seller_id": A2U504IZRVFHEQ,
+
+    }
+
+]
+
+
+
+For user detail deletion, include the "user_id" in the message within the same Kafka topic. The consumer will then process the message: if "user_id" is present, it will delete the user and then all the listings associated with that user will be deleted. This streamlined process utilises the same Kafka topic and consumer to efficiently manage both user and listing deletions. 
+
+
+
+For deleting strategy:
+
+[
+
+    {
+
+        "strategy_id": 1,
+
+    }
+
+]
+
+
+
+For strategy deletion, include the "strategy_id" in the message within the same Kafka topic. The consumer will then process the message: if "strategy_id" is present, it will delete the strategy. Listings associated with the deleted strategy will remain unchanged. During repricing, if a listing's strategy no longer exists, its repricing will be skipped.
+
+Cronjobs: 
+
+Your system's operation relies on five critical cronjobs:
+
+1)	Verify-user-credentials: 
+
+This scheduled cronjob plays a crucial role in verifying user credentials on an hourly basis. If any user's credentials are identified as 'INVALID,' their account status is promptly updated to 'INACTIVE.'
+
+
+
+2)	Trigger-Feed-Submission:
+
+A regularly scheduled cronjob runs every 2 minutes to gather details of Active Accounts. It then generates a task known as 'feed_submission_task' and inserts it into the 'feeds' queue within the Redis system. This task is armed with specific arguments like seller_id, marketplace_type, and refresh_token. The Feed Submission service's designated Celery worker keeps watch over the 'feeds' queue. Upon detecting a 'feed_submission_task' with its assigned arguments, the worker triggers its execution. In this execution, the task leverages the provided Active Account details to submit feeds to Amazon for the indicated accounts.
+
+
+
+3)	 Consume-SQS-Message:
+
+A cron job is set to run every minute, checking the SQS queue named 'ah-feed-notification-queue'. If there's a message in the queue, it examines the notification type. If the type is 'FEED_PROCESSING_FINISHED', it triggers the process_feed_notification task within the feed service. On the other hand, if the notification type is either 'ANY_OFFER_CHANGED' or 'B2B_ANY_OFFER_CHANGED', the system processes the any_offer_change notification. Subsequently, a payload is generated and produced on a  Kafka topic to kickstart the repricing process.
+
+
+
+4)	Delete-Old-Redis-Data:
+
+The provided cronjob, scheduled to run daily at 11pm, scans all ASINs and SKUs to determine if a SKU has been updated within the last 24 hours. If a SKU hasn't been updated in that timeframe, it's removed from the Redis storage. This deletion is based on a comparison with the "updated_at" key associated with each SKU, ensuring that only outdated data is removed from Redis while preserving recently updated information.
+
+
+
+5)	Check-Error_Feeds:
+
+This cronjob operates hourly, activating the "check_error_feeds" task within the Feed Submission service. It examines error feeds from the past hour , sends the details to the user via the "ah-repricer-alerts" topic and sends notification to slack channel.
+
+
+
+These scheduled tasks demonstrate a systematic and automated approach to managing user credentials, feed submissions, and data processing in your system.
+
+
+
+Core Engine (Repricer):
+
+The Core Engine, acting as the Repricer, assumes complete responsibility for repricing listings upon the consumption of messages (payload) by consumers. This is accomplished through the application of user-defined strategies stored in Redis, in conjunction with the corresponding listing data. The resultant output materialises within a Redis hash, precisely under the key "sellerID_repriced_products."
+
+In the CoreEngine module, the process commences with the Kafka consumer's detection of incoming messages within the 'ah_repricer' topic, which it promptly consumes.
+
+Kafka Topic:
+
+Topic: "ah_repricer"
+
+host: 92.119.129.177
+
+port: 31483
+
+
+
+Our current system manages the following payload types:
+
+--	Seller Partner API Payload (sp_api)
+
+--	B2b Seller Partner API Payload
+
+--	Batch Seller Partner API Payload
+
+--	Batch B2B Seller Partner API Payload
+
+--	Any Offer Change Notification
+
+--	B2B Any Offer Change Notification
+
+We receive Any Offer Change Payload and B2B Any Offer Change Payload through an SQS queue. A SQS consumer operates within our default service, responsible for consuming these notification payloads. Subsequently, it maps these notifications into SP_API Payload and B2B_SP_API Payload, and after mapping, it generates the payload to a Kafka topic to initiate the repricing process..
+
+
+
+Sample payloads to produce in kafka topic for repricing: <a href="https://docs.google.com/document/d/1mjMkk75ASYtZ0Ac1cb4V7SAEbz3ugPMC/edit#heading=h.gjdgxs">Sample Payloads</a>
+
+Upon the consumption of a payload associated with a specific ASIN, a series of sequential actions is set into motion. The initial preprocessing phase serves to decide the payload type, distinguishing between b2b and standard product payloads. Once classified, the subsequent course of action involves retrieving the listing data linked to the identified ASIN from the Redis cache.
+
+We have handled expected and unexpected exceptions in the core engine. To understand these exceptions you can visit this document: <a href="https://docs.google.com/document/d/1AIrTDc-VY_xAGJc3FsQGYEuSeEmeZ5x2/edit#heading=h.gjdgxs">Repricer Exception Handling</a>.
+
+
+
+For Inventory Age Repricing:
+
+When the inventory_age_rules key is present in the strategy, the product's inventory_age is compared to a range defined by the values in inventory_age_rules. If the product's inventory_age falls within the specified range, the corresponding strategy is assigned; otherwise, the strategy remains unchanged.
+
+
+
+Inventory Age Repricing Cases:
+
+--	When "inventory_age" is less than or equal to 0 or if "inventory_age_rules" key does not exist then we are applying the default strategy.
+
+--	When "inventory_age" is greater than 0 and does not fall in the range of “inventory_age_rules” then the default strategy is applied
+
+--	When "inventory_age" is greater than 0 and falls in the range of “inventory_age_rules” then that respective strategy is applied
+
+
+
+Standard Flow:
+
+For the standard product repricing process, several steps are involved. Once the listing data and strategy data are retrieved from the Redis cache, the system initiates the task of identifying competitors based on the information provided in the user-defined strategies.
+
+If the strategy property "compete_with" is specified as "MATCH_BUYBOX", the system selects a competitor from the available offers that have secured the buy box on Amazon. The objective here is to beat this particular competitor. To achieve this, a value called "beat_by" is either added or subtracted from the competitor's price, resulting in an adjusted price. After competitor identification product and strategy are stored in data class to utilise the data throughout the flow of repricing. Here you find the doc to understand about the data classes in our core engine. <a href="https://docs.google.com/document/d/1u0VTX4eDOQkQepVUKlfNHYRUQBL4eJeL/edit">Data classes</a>
+
+Following this, the adjusted price is verified to ensure it falls within the desired range – not exceeding the maximum or falling below the minimum price thresholds. In cases where the updated price doesn't meet this criterion, alternative strategies such as "min_price_rule" or "max_price_rule" are taken into account. The intricacies of these strategies are thoroughly explained in the provided document <a href="https://docs.google.com/document/d/1hv7DhKFnI94u2_limXxe_lQHmrVe04Wg/edit">Strategy Properties</a>.
+
+Once the updated price aligns with our predetermined range according to the strategy, the system proceeds to save this repriced product into a Redis hash linked to the corresponding seller's ID.
+
+Standard repricing data in redis:
+
+"A2Q1LRYTXHYQ2K_repriced_products": {"QA-L2F8-RD1K": {
+
+    "asin": "B00V5DG6IQ",
+
+    "sku": "QA-L2F8-RD1K",
+
+    "seller_id": "A2Q1LRYTXHYQ2K",
+
+    "Standard": {
+
+        "repricer_type": "Repricer",
+
+        "item_condition": "new",
+
+        "updated_price": 41.0,
+
+        "listed_price": 45.0,
+
+        "min_price": 41.0,
+
+        "max_price": 50.0,
+
+        "competitor_price": 30.71,
+
+        "strategy_id": 3
+
+    }
+
+}
+
+
+
+Business Flow:
+
+For the repricing of business products, the process involves retrieving data from the Redis cache, specifically from the "b2b_rules" hash associated with the SKU. In the context of B2B (business-to-business) scenarios, additional considerations come into play due to the presence of tiers. These tiers involve adjusting the quantity-based discounts alongside the business price of the product. The repricing process for B2B products includes both the business price and all available tiers, with adherence to the user-defined strategy.
+
+In situations where the strategy property "compete_with" is set as "LOWEST_PRICE," the system identifies competitors for the business price by selecting the lowest price from the summary of the consumed payload. This selection is made from offers categorised as "B2C" or those with no specified discount type. This same approach applies to each individual tier. However, for tiers, specific criteria must be met: the competitor must offer the same quantity as defined in our tier quantity and offer type should be “B2B” or discount type should be “QUANTITY_DISCOUNT”. It's important to note that the implementation of the "Compete_for" aspect is currently under consideration, as it entails various intricate scenarios that require thorough discussion before being fully implemented.
+
+Upon successfully selecting the competitor, a similar approach to standard repricing is taken. The chosen competitor's price is adjusted using the "beat_by" value. And ensure that the updated price is in the range (min and max) for both business and tiers. 
+
+Once the updated prices for both the business price and tier prices are in alignment with our predetermined range based on the defined strategy, the system takes the final step of recording this repriced product. The updated details are stored within a Redis hash linked to the corresponding seller's ID.
+
+Business repricing data in redis:
+
+"A2Q1LRYTXHYQ2K_repriced_products": {
+
+  "QA-L2F8-RD1K": {
+
+    'asin': 'B00V5DG6IQ',
+
+    'sku': 'QA-L2F8-RD1K',
+
+    'seller_id': 'A2Q1LRYTXHYQ2K',
+
+    'B2B': {
+
+      'repricer_type': 'Repricer',
+
+      'item_condition': 'new',
+
+      'updated_price': 16.0,
+
+      'listed_price': 45.0,
+
+      'min_price': 16.0,
+
+      'max_price': 60.0,
+
+      'competitor_price': 15.37,
+
+      'tiers': [
+
+        {
+
+          'tier1': {
+
+            'quantity': 3,
+
+            'updated_price': None,
+
+            'listed_price': 44.5,
+
+            'min_price': None,
+
+            'max_price': None,
+
+            'competitor_price': None,
+
+            'message': 'Competitor Not Found'
+
+          },
+
+          'tier2': {
+
+            'quantity': 5,
+
+            'updated_price': None,
+
+            'listed_price': 40.5,
+
+            'min_price': None,
+
+            'max_price': None,
+
+            'competitor_price': None,
+
+            'message': 'Competitor Not Found'
+
+          },
+
+          'tier3': {
+
+            'quantity': 10,
+
+            'updated_price': 16.0,
+
+            'listed_price': 38.0,
+
+            'min_price': None,
+
+            'max_price': None,
+
+            'competitor_price': 13.57,
+
+            'message': None
+
+          }
+
+        }
+
+      ]
+
+    }
+
+  }
+
+}
+
+
+
+
+
+The repricing mechanism effectively repriced all SKUs of different sellers who offer the same ASIN. Single ASIN associated with multiple sellers within our system, the repricer diligently addresses each individual seller's SKUs, facilitating a comprehensive repricing procedure that encompasses all associated SKUs. This approach ensures that each seller's offerings for a given ASIN are effectively and uniformly repriced.
+
+Core Engine will store output in redis:
+
+
+
+"A2Q1LRYTXHYQ2K_repriced_products": {"QA-L2F8-RD1K": {
+
+    "asin": "B00V5DG6IQ",
+
+    "sku": "QA-L2F8-RD1K",
+
+    "seller_id": "A2Q1LRYTXHYQ2K",
+
+    "Standard": {
+
+        "repricer_type": "Repricer",
+
+        "item_condition": "new",
+
+        "updated_price": 41.0,
+
+        "listed_price": 45.0,
+
+        "min_price": 41.0,
+
+        "max_price": 50.0,
+
+        "competitor_price": 30.71,
+
+        "strategy_id": 3
+
+    },
+
+    "B2B": {
+
+        "repricer_type": "Repricer",
+
+        "item_condition": "new",
+
+        "updated_price": 0,
+
+        "listed_price": 45.0,
+
+        "min_price": 16.0,
+
+        "max_price": 60.0,
+
+        "competitor_price": null,
+
+        "strategy_id": 1,
+
+        "tiers": {
+
+            "tier1": {
+
+                "quantity": 3,
+
+                "updated_price": null,
+
+                "listed_price": 44.5,
+
+                "min_price": 0.0,
+
+                "max_price": 0.0,
+
+                "competitor_price": null,
+
+                "message": "Competitor Not Found"
+
+            },
+
+            "tier2": {
+
+                "quantity": 5,
+
+                "updated_price": null,
+
+                "listed_price": 40.5,
+
+                "min_price": 0.0,
+
+                "max_price": 0.0,
+
+                "competitor_price": null,
+
+                "message": "Competitor Not Found"
+
+            },
+
+            "tier3": {
+
+                "quantity": 10,
+
+                "updated_price": null,
+
+                "listed_price": 38.0,
+
+                "min_price": 0.0,
+
+                "max_price": 0.0,
+
+                "competitor_price": null,
+
+                "message": "Competitor Not Found"
+
+            }
+
+        }
+
+    }
+
+}}
+
+
+
+Subsequently, this data will be consumed by the feed submission process, where it will be utilised to generate and submit feeds on behalf of the respective seller.
+
+
+
+Feed Submission Microservice
+
+The FeedSubmission module plays a pivotal role in managing product feeds on behalf of sellers. We have discussed above in the Default Microservice that the feed submission task will be triggered through celery. Feed Submission module Start with retrieving product lists from the Redis cache, facilitated by the unique key for each seller. 
+
+
+
+Key: {seller_id}_repriced_products
+
+
+
+e.g: “A2Q1LRYTXHYQ2K_repriced_products”
+
+
+
+After getting the product details, the module follows a step-by-step process. It handles the products and makes an XML feed for each seller and dumps that feed in the XML file. Here is the sample xml feeds <a href="https://docs.google.com/document/d/1MpatwGhaM0DLGk4W39ycfkcle8IEoMNm/edit#heading=h.gjdgxs">XML Feeds</a>. Then that XML is submitted on Amazon for price change through sp api. On successful submission of feed on amazon we will get a feed_submission_id against which we are inserting data in “feed_submission” postgres database with status “Submitted” and create a product in product table with all the possible data available to use for logs later. 
+
+Second cron job  mentioned in Default Microservice “Fetch-Feed-Details”
+
+											Qbatch</pre>
+</body>
+</html>

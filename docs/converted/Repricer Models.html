@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Repricer Models</title>
+</head>
+<body>
+    <pre>Data Classes for Core Engine
+
+Product
+
+Common attributes:
+
+default_price:
+
+default price will be considered when min_price_rule or max_price_rule is set to “DEFAULT_PRICE”. 
+
+seller_id: 
+
+Unique Amazon seller id for user.
+
+sku: 
+
+Product SKU
+
+asin: 
+
+Product ASIN
+
+is_b2b: 
+
+False if payload received for repricing of standard product and True if for Business Product.
+
+strategy:
+
+strategy object
+
+repricer_type: 
+
+“REPRICER” if repricing through our system and “MANUAL” if Immediate Repricing.
+
+inventory_age:
+
+	The age of the listing (fetch through inventory age reports against seller). If not provided, the Default value will be 0.
+
+status:
+
+	The status of the listing. Active / Inactive. If not provided, the default value will be “Active”.
+
+
+
+Standard:
+
+item_condition:
+
+Condition of product listed on amazon. If that property is missing we will pick the default value “new”. Item Condition mapping can be checked in this doc: <a href="https://docs.google.com/document/d/1VT0tmSC0OwpmfL_LBVEcOm5i1TNNUnQ2/edit">Mapping</a>.
+
+inventory_quantity:
+
+	Stock of product available. If not available, set to None.
+
+strategy_id:
+
+	The Id of a strategy that is linked with the listing.
+
+fullfilment_type:
+
+	Fullfilment type of amazon (eg. “Amazon”)
+
+min_price:
+
+	Min price of listed product
+
+max_price: 
+
+	Max price of listed product
+
+competitor_price: 
+
+	Competitor price picked from payload account to the applied strategies.
+
+listed_price: 
+
+	Listed price of a product.
+
+updated_price: 
+
+	Update / new price of a product after repricing.
+
+quantity: 
+
+	For Standard case quantity will be 1.
+
+
+
+Business:
+
+item_condition:
+
+Condition of product listed on amazon. If that property is missing we will pick the default value “new”. Item Condition mapping can be checked in this doc: <a href="https://docs.google.com/document/d/1VT0tmSC0OwpmfL_LBVEcOm5i1TNNUnQ2/edit">Mapping</a>.
+
+inventory_quantity:
+
+	Stock of product available. If not available, set to None.
+
+strategy_id:
+
+The Id of a strategy that is linked with the listing.
+
+fullfilment_type:
+
+Fullfilment type of amazon (eg. “Amazon”)
+
+min_price:
+
+	Min price of listed product
+
+max_price: 
+
+	Max price of listed product
+
+competitor_price: 
+
+	Competitor price picked from payload account to the applied strategies.
+
+listed_price: 
+
+	Listed price of a product.
+
+updated_price: 
+
+	Update / new price of a business product after repricing.
+
+Tiers:
+
+List of Tier Objects. that have tiers data in it. Number of tiers depends on the tiers available in the listing data.
+
+Strategy
+
+compete_with: 
+
+	Strategy on which we will find the competitor
+
+beat_by: 
+
+	Beat by value. 
+
+min_price_rule: 
+
+	Min price rule strategy. What to do if the updated price is less than min.
+
+max_price_rule: 
+
+	Max price rule strategy. What to do if the updated price is less than max.
+
+b2b_compete_for:
+
+b2b_beat_by_rule: 
+
+Tier
+
+quantity: 
+
+	Tier quantity, in our listing data
+
+min_price: 
+
+	Tier min price, in our listing data
+
+max_price: 
+
+	Tier max price, in our listing data
+
+listed_price: 
+
+	Listed price, in out listing data.
+
+competitor_price: 
+
+	Price of competitor which we pick against this tier.
+
+offerquantity: 
+
+	Competitor offered quantity
+
+updated_price: 
+
+	Updated price of tier after repricing.</pre>
+</body>
+</html>

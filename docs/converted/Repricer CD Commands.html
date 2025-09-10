@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Repricer CD Commands</title>
+</head>
+<body>
+    <pre>AH-Repricer						         Continues Deployment Document
+
+Continuous Deployment Commands
+
+We have implemented an automated CI/CD pipeline for deploying our ah-repricer microservices through GitHub Actions. We frequently use the following commands for the deployment process.
+
+Docker Commands
+
+Repricer Service
+
+Building Docker Image
+
+>>> docker build -t drmaxv/repricer:<tag-name> .
+
+Test Run Docker Image
+
+>>> docker run -it drmaxv/repricer:<tag-name>
+
+Push Docker Image
+
+>>> docker push drmaxv/repricer:<tag-name>
+
+Listing Service
+
+Building Docker Image
+
+>>> docker build -t drmaxv/listing:<tag-name> .
+
+Test Run Docker Image
+
+>>> docker run -it drmaxv/listing:<tag-name>
+
+Push Docker Image
+
+>>> docker push drmaxv/listing:<tag-name>
+
+Feed Submission Service
+
+Building Docker Image
+
+>>> docker build -t drmaxv/feedsubmission:<tag-name> .
+
+Test Run Docker Image
+
+>>> docker run -it drmaxv/feedsubmission:<tag-name>
+
+Push Docker Image
+
+>>> docker push drmaxv/feedsubmission:<tag-name>
+
+Default Service
+
+Building Docker Image
+
+>>> docker build -t drmaxv/default:<tag-name> .
+
+Test Run Docker Image
+
+>>> docker run -it drmaxv/default:<tag-name>
+
+Push Docker Image
+
+>>> docker push drmaxv/default:<tag-name>
+
+
+
+Helm Commands
+
+Installing Helm Charts
+
+Repricer Chart
+
+>>> helm install repricer apps/repricer/ah-core-engine --values apps/repricer/repricer/values.yaml -n ah-authentication
+
+Listing Chart
+
+>>> helm install listing apps/repricer/ah-core-engine --values apps/repricer/listing/values.yaml -n ah-authentication
+
+Feed Submission Chart
+
+>>> helm install feedsubmission apps/repricer/ah-core-engine --values apps/repricer/feedsubmission/values.yaml -n ah-authentication
+
+Default Service Chart
+
+>>> helm install default  apps/repricer/ah-core-engine --values apps/repricer/default/values.yaml -n ah-authentication
+
+
+
+Upgrading Helm Charts
+
+Repricer Chart
+
+>>> helm upgrade repricer  apps/repricer/ah-core-engine --values apps/repricer/repricer/values.yaml -n ah-authentication
+
+Listing Chart
+
+>>> helm upgrade listing apps/repricer/ah-core-engine --values apps/repricer/listing/values.yaml -n ah-authentication
+
+Feed Submission Chart
+
+>>> helm upgrade feedsubmission apps/repricer/ah-core-engine --values apps/repricer/feedsubmission/values.yaml -n ah-authentication
+
+Default Service Chart
+
+>>> helm upgrade default  apps/repricer/ah-core-engine --values apps/repricer/default/values.yaml -n ah-authentication
+
+
+
+Commands to retrieve and check resources against a namespace.
+
+List Installed Charts
+
+>>> helm list -n ah-authentication
+
+
+
+Kubectl Commands
+
+Scale Deployment
+
+>>> kubectl scale deployment <pod-name> --replicas=1 -n ah-authentication
+
+
+
+Retrieve all resources Info
+
+>>> kubectl get all -n  ah-authentication
+
+Retrieve all Pods
+
+>>> kubectl get pods -n ah-authentication
+
+Retrieve all Deployments
+
+>>> kubectl get deployments -n ah-authentication
+
+Pod Logs
+
+>>> kubectl logs -f <pod-name> -n ah-authentication
+
+
+
+
+
+											Qbatch</pre>
+</body>
+</html>

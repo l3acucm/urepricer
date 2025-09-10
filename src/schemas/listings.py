@@ -5,7 +5,7 @@ Handles product listings, inventory data, and alerts.
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 
 # Product listing schemas
@@ -33,38 +33,43 @@ class ProductListingBase(BaseModel):
     strategy_id: Optional[int] = Field(None, description="Custom strategy ID")
     compete_with: str = Field(default="LOWEST_PRICE", description="Competition strategy")
     
-    @validator('marketplace_type')
+    @field_validator('marketplace_type')
+    @classmethod
     def validate_marketplace(cls, v):
         allowed_marketplaces = ['US', 'UK', 'CA', 'AU']
         if v not in allowed_marketplaces:
             raise ValueError(f'Marketplace must be one of: {allowed_marketplaces}')
         return v
     
-    @validator('item_condition')
+    @field_validator('item_condition')
+    @classmethod
     def validate_condition(cls, v):
         allowed_conditions = ['New', 'Used', 'Collectible', 'Refurbished']
         if v not in allowed_conditions:
             raise ValueError(f'Item condition must be one of: {allowed_conditions}')
         return v
     
-    @validator('status')
+    @field_validator('status')
+    @classmethod
     def validate_status(cls, v):
         allowed_statuses = ['Active', 'Inactive', 'Incomplete', 'Suppressed']
         if v not in allowed_statuses:
             raise ValueError(f'Status must be one of: {allowed_statuses}')
         return v
     
-    @validator('compete_with')
+    @field_validator('compete_with')
+    @classmethod
     def validate_compete_with(cls, v):
         allowed_types = ['LOWEST_PRICE', 'LOWEST_FBA_PRICE', 'MATCH_BUYBOX']
         if v not in allowed_types:
             raise ValueError(f'Compete with must be one of: {allowed_types}')
         return v
     
-    @validator('max_price')
-    def validate_price_range(cls, v, values):
-        if v is not None and 'min_price' in values and values['min_price'] is not None:
-            if v <= values['min_price']:
+    @field_validator('max_price')
+    @classmethod
+    def validate_price_range(cls, v, info):
+        if v is not None and hasattr(info, 'data') and info.data and 'min_price' in info.data and info.data['min_price'] is not None:
+            if v <= info.data['min_price']:
                 raise ValueError('Max price must be greater than min price')
         return v
 
@@ -118,7 +123,8 @@ class BulkListingUpdate(BaseModel):
     marketplace_type: str = Field(..., description="Marketplace")
     updates: Dict[str, ProductListingUpdate] = Field(..., description="ASIN -> update data mapping")
     
-    @validator('marketplace_type')
+    @field_validator('marketplace_type')
+    @classmethod
     def validate_marketplace(cls, v):
         allowed_marketplaces = ['US', 'UK', 'CA', 'AU']
         if v not in allowed_marketplaces:
@@ -157,14 +163,16 @@ class ListingFilter(BaseModel):
     sort_by: str = Field(default="updated_at", description="Field to sort by")
     sort_order: str = Field(default="desc", description="Sort order")
     
-    @validator('sort_by')
+    @field_validator('sort_by')
+    @classmethod
     def validate_sort_by(cls, v):
         allowed_fields = ['asin', 'listed_price', 'quantity', 'updated_at', 'last_price_update', 'product_name']
         if v not in allowed_fields:
             raise ValueError(f'Sort by must be one of: {allowed_fields}')
         return v
     
-    @validator('sort_order')
+    @field_validator('sort_order')
+    @classmethod
     def validate_sort_order(cls, v):
         if v not in ['asc', 'desc']:
             raise ValueError('Sort order must be "asc" or "desc"')
@@ -191,14 +199,16 @@ class CompetitorDataBase(BaseModel):
     is_buybox_winner: bool = Field(default=False, description="Current buybox winner")
     is_prime: bool = Field(default=False, description="Prime eligible")
     
-    @validator('marketplace_type')
+    @field_validator('marketplace_type')
+    @classmethod
     def validate_marketplace(cls, v):
         allowed_marketplaces = ['US', 'UK', 'CA', 'AU']
         if v not in allowed_marketplaces:
             raise ValueError(f'Marketplace must be one of: {allowed_marketplaces}')
         return v
     
-    @validator('condition')
+    @field_validator('condition')
+    @classmethod
     def validate_condition(cls, v):
         allowed_conditions = ['New', 'Used', 'Collectible', 'Refurbished']
         if v not in allowed_conditions:
@@ -238,7 +248,8 @@ class ListingAlertBase(BaseModel):
     title: str = Field(..., max_length=200, description="Alert title")
     message: Optional[str] = Field(None, description="Detailed alert message")
     
-    @validator('alert_type')
+    @field_validator('alert_type')
+    @classmethod
     def validate_alert_type(cls, v):
         allowed_types = [
             'PRICE_OUT_OF_RANGE', 'INVENTORY_LOW', 'COMPETITOR_CHANGE', 
@@ -248,7 +259,8 @@ class ListingAlertBase(BaseModel):
             raise ValueError(f'Alert type must be one of: {allowed_types}')
         return v
     
-    @validator('severity')
+    @field_validator('severity')
+    @classmethod
     def validate_severity(cls, v):
         allowed_severities = ['INFO', 'WARNING', 'ERROR', 'CRITICAL']
         if v not in allowed_severities:
@@ -296,7 +308,8 @@ class ListingImportRequest(BaseModel):
     overwrite_existing: bool = Field(default=False, description="Overwrite existing data")
     data: str = Field(..., description="Import data (CSV string or JSON)")
     
-    @validator('import_format')
+    @field_validator('import_format')
+    @classmethod
     def validate_import_format(cls, v):
         if v not in ['CSV', 'JSON']:
             raise ValueError('Import format must be CSV or JSON')
@@ -320,7 +333,8 @@ class ListingExportRequest(BaseModel):
     include_competitor_data: bool = Field(default=False, description="Include competitor data")
     filters: Optional[ListingFilter] = Field(None, description="Export filters")
     
-    @validator('export_format')
+    @field_validator('export_format')
+    @classmethod
     def validate_export_format(cls, v):
         if v not in ['CSV', 'JSON']:
             raise ValueError('Export format must be CSV or JSON')

@@ -4,7 +4,7 @@ Provides request/response validation and serialization.
 """
 from datetime import datetime, time
 from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 
 # Base schemas
@@ -15,16 +15,18 @@ class PriceResetBase(BaseModel):
     enabled: bool = Field(default=False, description="Whether price reset is active")
     product_condition: str = Field(..., max_length=100, description="Product condition filter (e.g., 'New', 'Used')")
     
-    @validator('product_condition')
+    @field_validator('product_condition')
+    @classmethod
     def validate_condition(cls, v):
         allowed_conditions = ['New', 'Used', 'Collectible', 'Refurbished', 'All']
         if v not in allowed_conditions:
             raise ValueError(f'Product condition must be one of: {allowed_conditions}')
         return v
     
-    @validator('resume_time')
-    def validate_time_order(cls, v, values):
-        if 'reset_time' in values and v <= values['reset_time']:
+    @field_validator('resume_time')
+    @classmethod
+    def validate_time_order(cls, v, info):
+        if hasattr(info, 'data') and info.data and 'reset_time' in info.data and v <= info.data['reset_time']:
             raise ValueError('Resume time must be after reset time')
         return v
 
@@ -41,7 +43,8 @@ class PriceResetUpdate(BaseModel):
     enabled: Optional[bool] = None
     product_condition: Optional[str] = None
     
-    @validator('product_condition')
+    @field_validator('product_condition')
+    @classmethod
     def validate_condition(cls, v):
         if v is not None:
             allowed_conditions = ['New', 'Used', 'Collectible', 'Refurbished', 'All']
@@ -69,7 +72,8 @@ class UserAccountBase(BaseModel):
     enabled: bool = Field(default=True, description="Account enabled status")
     repricer_enabled: bool = Field(default=True, description="Repricing functionality enabled")
     
-    @validator('marketplace_type')
+    @field_validator('marketplace_type')
+    @classmethod
     def validate_marketplace(cls, v):
         allowed_marketplaces = ['US', 'UK', 'CA', 'AU']
         if v not in allowed_marketplaces:
@@ -154,13 +158,15 @@ class NotificationSubscriptionRequest(BaseModel):
     action: str = Field(..., description="Action: 'subscribe' or 'unsubscribe'")
     notification_type: str = Field(..., description="Notification type: 'ANY_OFFER_CHANGED' or 'FEED_PROCESSING_FINISHED'")
     
-    @validator('action')
+    @field_validator('action')
+    @classmethod
     def validate_action(cls, v):
         if v not in ['subscribe', 'unsubscribe']:
             raise ValueError('Action must be either "subscribe" or "unsubscribe"')
         return v
     
-    @validator('notification_type')
+    @field_validator('notification_type')
+    @classmethod
     def validate_notification_type(cls, v):
         allowed_types = ['ANY_OFFER_CHANGED', 'FEED_PROCESSING_FINISHED']
         if v not in allowed_types:
@@ -181,7 +187,8 @@ class AccountStatusUpdate(BaseModel):
     """Schema for updating account status."""
     status: str = Field(..., description="Account status")
     
-    @validator('status')
+    @field_validator('status')
+    @classmethod
     def validate_status(cls, v):
         allowed_statuses = ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'PENDING']
         if v not in allowed_statuses:
@@ -196,7 +203,8 @@ class AccountListFilter(BaseModel):
     status: Optional[str] = None
     repricer_enabled: Optional[bool] = None
     
-    @validator('marketplace')
+    @field_validator('marketplace')
+    @classmethod
     def validate_marketplace(cls, v):
         if v is not None:
             allowed_marketplaces = ['US', 'UK', 'CA', 'AU']

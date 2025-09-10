@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Repricer Strategy Properties Values</title>
+</head>
+<body>
+    <pre>AH-Repricer						                           	      				Strategy’s Properties Document
+
+Repricer Properties (Strategies)
+
+
+
+Properties
+
+Expected Values
+
+Expected Values
+
+Expected Values
+
+Expected Values
+
+Expected Values
+
+Expected Values
+
+Default Value
+
+compete_with
+
+LOWEST_PRICE
+
+LOWEST_FBA_PRICE
+
+MATCH_BUYBOX
+
+
+
+
+
+
+
+MATCH_BUYBOX
+
+beat_by
+
+0.01 (+ve float)
+
+-0.01 (-ve float)
+
+
+
+
+
+
+
+
+
+0
+
+min_price_rule
+
+JUMP_TO_MIN
+
+JUMP_TO_MAX
+
+JUMP_TO_AVG
+
+DEFAULT_PRICE
+
+DO_NOTHING
+
+MATCH_COMPETITOR
+
+JUMP_TO_MIN
+
+max_price_rule
+
+JUMP_TO_MIN
+
+JUMP_TO_MAX
+
+JUMP_TO_AVG
+
+DEFAULT_PRICE
+
+DO_NOTHING
+
+MATCH_COMPETITOR
+
+JUMP_TO_MAX
+
+b2b_compete_for *
+
+LOW
+
+HIGH
+
+
+
+
+
+
+
+
+
+LOW
+
+b2b_beat_by_rule*
+
+AVERAGE 
+
+BEAT_BY
+
+
+
+
+
+
+
+
+
+BEAT_BY
+
+inventory_age_rules
+
+{
+
+        "0-90": {
+
+            "strategy_id": 2
+
+        },
+
+        "91-180": {
+
+            "strategy_id": 3
+
+        },
+
+        "181-270": {
+
+            "strategy_id": 4
+
+        },
+
+        "271-365": {
+
+            "strategy_id": 5
+
+        },
+
+        "365+": {
+
+            "strategy_id": 6
+
+        }
+
+ }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Note: 
+
+1)	Default Value will be considered if the property is missing or not available. 
+
+2)	In case of DEFAULT_PRICE, Listing Data should have DEFAULT_PRICE to use, else we will not reprise.
+
+3)	(*) Not feasible within the current workflow due to numerous edge cases. A discussion is needed for proper understanding.
+
+
+
+Strategy Field Explanations:
+
+
+
+compete_with:
+
+This field defines the criteria for selecting a competitor from the available offers. Possible values are:
+
+
+
+1)	MATCH_BUYBOX: Select the competitor with the buy box.
+
+2)	LOWEST_FBA_PRICE: Choose the competitor with the lowest FBA (Fulfilment by Amazon) price.
+
+3)	LOWEST_PRICE: Choose the competitor with the lowest overall price.
+
+Default: MATCH_BUYBOX
+
+
+
+beat_by:
+
+This field represents the amount by which our price is adjusted compared to the competitor's price. Values include:
+
+
+
+1)	0.01: Increase the competitor's price by 0.01.
+
+2)	-0.01: Decrease the competitor's price by 0.01.
+
+
+
+Default: 0 (matching the price).
+
+
+
+min_price_rule:
+
+This field determines the strategy when the updated price is lower than the minimum price. Possible values are:
+
+
+
+1)	JUMP_TO_MIN: Set the minimum price as the new price if it's lower than the minimum.
+
+2)	JUMP_TO_MAX: Set the maximum price as the new price.
+
+3)	JUMP_TO_AVG: Set the average price of maximum value and minimum value
+
+4)	DO_NOTHING: Do not reprice.
+
+5)	DEFAULT_PRICE: Use the default price (if set) from the listing.
+
+6)	MATCH_COMPETITOR: Set the competitor's price if lower than the minimum or no minimum is set.
+
+
+
+Default: JUMP_TO_MIN
+
+
+
+max_price_rule:
+
+This field determines the strategy when the updated price is higher than the maximum price. Possible values are:
+
+
+
+1)	JUMP_TO_MIN: Set the minimum price if it's lower than the minimum.
+
+2)	JUMP_TO_MAX: Set the maximum price as the new price.
+
+3)	JUMP_TO_AVG: Set the average price of maximum value and minimum value
+
+4)	DO_NOTHING: Do not reprice.
+
+5)	DEFAULT_PRICE: Use the default price (if set) from the listing.
+
+6)	MATCH_COMPETITOR: Set competitor's price if higher than the maximum or no maximum is set.
+
+
+
+Default: JUMP_TO_MAX
+
+
+
+Note: 
+
+In JUMP_TO_AVG case, when there is no minimum price or maximum price then we dont reprice.
+
+
+
+b2b_compete_for:
+
+This field is specific to the B2B strategy and determines competition when our quantity is unavailable. Values are:
+
+
+
+1)	Low: Compete against competitors with lower offer quantity.
+
+2)	High: Compete against competitors with higher offer quantity.
+
+
+
+b2b_beat_by_rule:
+
+Also for B2B strategy, this field defines price adjustment when our quantity is unavailable. Possible values are:
+
+
+
+1)	Average: Set the updated price as the average of our price and competitor's price.
+
+2)	Beat_by: Apply beat_by logic to the competitor's price.
+
+
+
+Default: Average (if not present).
+
+
+
+Inventory_age_rules:
+
+This field specifies the inventory age strategies range. Inventory age is the number of days the product has been in the Amazon warehouse. This inventory_age_rules is considered when the inventory_age in listing data is greater than 0, Otherwise Normal repricing is done. Normal Repricing is a kind of repricing in which we don't go into the inventory_age_rules ranges to find the strategy, instead we apply the default strategy.
+
+Ranges:
+
+1)	0-90
+
+2)	91-180
+
+3)	181-270
+
+4)	270-365
+
+5)	365+
+
+
+
+																		   Qbatch</pre>
+</body>
+</html>

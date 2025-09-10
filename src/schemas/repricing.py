@@ -5,7 +5,7 @@ Handles repricing calculations, strategies, and price optimization.
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 
 # Competitor data schemas
@@ -21,14 +21,16 @@ class CompetitorOffer(BaseModel):
     is_b2b_offer: bool = Field(default=False, description="Business offer")
     quantity_tier: Optional[int] = Field(None, description="B2B quantity tier")
     
-    @validator('condition')
+    @field_validator('condition')
+    @classmethod
     def validate_condition(cls, v):
         allowed_conditions = ['New', 'Used', 'Collectible', 'Refurbished']
         if v not in allowed_conditions:
             raise ValueError(f'Condition must be one of: {allowed_conditions}')
         return v
     
-    @validator('fulfillment_type')
+    @field_validator('fulfillment_type')
+    @classmethod
     def validate_fulfillment(cls, v):
         if v is not None:
             allowed_types = ['FBA', 'FBM']
@@ -57,14 +59,16 @@ class PriceCalculationRequest(BaseModel):
     # Force calculation even if price is current
     force_calculation: bool = Field(default=False, description="Force recalculation")
     
-    @validator('marketplace_type')
+    @field_validator('marketplace_type')
+    @classmethod
     def validate_marketplace(cls, v):
         allowed_marketplaces = ['US', 'UK', 'CA', 'AU']
         if v not in allowed_marketplaces:
             raise ValueError(f'Marketplace must be one of: {allowed_marketplaces}')
         return v
     
-    @validator('strategy_override')
+    @field_validator('strategy_override')
+    @classmethod
     def validate_strategy(cls, v):
         if v is not None:
             allowed_strategies = ['CHASE_BUYBOX', 'MAXIMIZE_PROFIT', 'ONLY_SELLER']
@@ -113,7 +117,8 @@ class BulkPriceCalculationRequest(BaseModel):
     asins: List[str] = Field(..., min_items=1, max_items=1000, description="List of ASINs to calculate")
     force_calculation: bool = Field(default=False, description="Force recalculation for all ASINs")
     
-    @validator('marketplace_type')
+    @field_validator('marketplace_type')
+    @classmethod
     def validate_marketplace(cls, v):
         allowed_marketplaces = ['US', 'UK', 'CA', 'AU']
         if v not in allowed_marketplaces:
@@ -234,7 +239,8 @@ class MarketplaceAnalysisRequest(BaseModel):
     marketplace_type: str = Field(..., description="Marketplace to analyze")
     include_historical: bool = Field(default=False, description="Include historical data in analysis")
     
-    @validator('marketplace_type')
+    @field_validator('marketplace_type')
+    @classmethod
     def validate_marketplace(cls, v):
         allowed_marketplaces = ['US', 'UK', 'CA', 'AU']
         if v not in allowed_marketplaces:

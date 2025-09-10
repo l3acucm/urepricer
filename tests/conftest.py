@@ -5,9 +5,47 @@ import sys
 import os
 import json
 import unittest
+from unittest.mock import Mock
+import fakeredis
+import pytest
+
+# Mock missing dependencies before any imports
+class MockLogger:
+    def bind(self, **kwargs):
+        return self
+    
+    def info(self, msg, extra=None, **kwargs):
+        pass
+    
+    def warning(self, msg, extra=None, **kwargs):
+        pass
+    
+    def error(self, msg, extra=None, **kwargs):
+        pass
+    
+    def debug(self, msg, extra=None, **kwargs):
+        pass
+    
+    def critical(self, msg, extra=None, **kwargs):
+        pass
+
+# Create mock modules and add to sys.modules before any imports
+loguru_mock = Mock()
+loguru_mock.logger = MockLogger()
+sys.modules['loguru'] = loguru_mock
+
+# Mock other potentially missing dependencies (except pydantic - needed for Redis OM)
+sys.modules['python-dotenv'] = Mock()
+sys.modules['boto3'] = Mock()
+sys.modules['botocore'] = Mock()
+sys.modules['botocore.exceptions'] = Mock()
+sys.modules['redis.asyncio'] = Mock()
+# Note: fastapi is NOT mocked - it's required for E2E tests
+# Note: pydantic is NOT mocked - it's required for Redis OM
 
 # Set environment variables before imports to avoid configuration issues
 os.environ.update({
+    'TESTING': 'true',  # Enable test mode for Redis OM
     'SECRET_KEY': 'test-secret-key',
     'DATABASE_URL': 'postgresql://test:test@localhost/test',
     'DB_PASSWORD': 'test-password',
@@ -28,6 +66,8 @@ os.environ.update({
 current_dir = os.path.dirname(__file__)
 src_dir = os.path.join(current_dir, '..', 'src')
 sys.path.insert(0, src_dir)
+
+# Redis OM will be configured via TESTING environment variable
 
 # Import test data and constants from the original repricer module
 original_repricer_path = os.path.join(current_dir, '..', '..', 'repricer', 'repricer')

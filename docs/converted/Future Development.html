@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Future Development</title>
+</head>
+<body>
+    <pre>
+
+--	Maximize profit in strategy
+
+	--	In case of single only seller, go to default, if default is not present, go to average (if both min/max present)
+
+	--	If we own the buybox, and there’s seller on higher price with buybox eligibility, we jump to them.
+
+
+
+--	Add `success` field true/false and `error` with error description on feed ready and send these along with same message to same kafka topic we are already using. (update the document with the format)
+
+--	Delete seller with all listing, optimize the deletion process, for expire we need to include latest update in each ASIN, so we can manually expire it.
+
+--	Logging is happening currently, but the plan is to price change loging decided time series db.
+
+--	Consider Feed submission refresh rate. Convert the products into size and maximise around 10MB
+
+
+
+--	23- AvailabilityType -> Now
+
+	--	It will be discussed later
+
+
+
+
+
+Later to consider
+
+--	Positioning it on higher end during night
+
+	--	Raise prices for products currently listed at their minimum price during non-peak hours, enabling the repricing cycle to continue.
+
+1)	As Listing data is in Redis, so we need to iterate through listing in Redis.
+
+2)	Non peak hours for US and UK market place are different , so separate cronjobs for each market.
+
+3)	How much price we gonna increase? i.e from Minimum price to Maximum price or % or Mean ?
+
+	a)	What should happen for products which don't have minimum or maximum?
+
+
+
+--	Inventory age.
+
+	--	Fulfilmemnt channel
+
+--	Any plan for enabling AnyOfferChnage notification
+
+--	Timeseries db for price history i.e 
+
+	--	data dog 
+
+	--	Define format
+
+--	ELK log insertion 3 days
+
+--	Listing
+
+	--	Listing sync
+
+	--	COGs change
+
+	--	Strategy management
+
+	--	Retire/New offers
+
+	--	New listing
+
+	--	
+
+--	Orders/Dashboard
+
+	--	Order import
+
+	--	COGs sync from listing
+
+	--	Profit
+
+	--	Fees Settlement/Financial Events
+
+	--	Snapshots of data for dashboard
+
+--	Inventory
+
+	--	  API to get stock and Price
+
+	--	  API to update stock(probably when orders are received & when we have bought stock)
+
+	--	  Inventory Age Factor(if items in the inventory are old)
+
+	--	  Listing new items which is not in inventory and we wanna list that to our Seller Central</pre>
+</body>
+</html>

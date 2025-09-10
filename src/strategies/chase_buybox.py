@@ -1,63 +1,63 @@
 from typing import Any
-from .new_price_processor import NewPriceProcessor, SkipProductRepricing
+from .base_strategy import BaseStrategy, PriceBoundsError
+from .new_price_processor import SkipProductRepricing
 
 
-WIN_BUYBOX_STRATEGY = "WIN_BUYBOX"
-
-
-class ChaseBuyBox:
+class ChaseBuyBox(BaseStrategy):
     """Strategy to chase the buybox by beating competitor prices."""
     
-    def __init__(self, product: Any) -> None:
-        self.product = product
-
+    def get_strategy_name(self) -> str:
+        """Return the strategy name."""
+        return "WIN_BUYBOX"
+    
     def apply(self) -> None:
-        """Apply the GetBuyBox strategy to the given product."""
-        product = self.product
-        seller_id = product.account.seller_id
-        asin = product.asin
-
-        new_price_processor = NewPriceProcessor(self.product)
-        
-        if not product.is_b2b:
-            new_price = eval(f"{product.competitor_price} + {product.strategy.beat_by}")
-            new_price = round(new_price, 2)
-
-            product.updated_price = round(
-                new_price_processor.process_price(new_price, seller_id, asin), 2
-            )
-            product.message = self._get_product_pricing_message(product, WIN_BUYBOX_STRATEGY)
+        """Apply the ChaseBuyBox strategy to the given product."""
+        if not self.product.is_b2b:
+            # Standard product pricing
+            self._apply_standard_pricing()
         else:
-            # For Business Standard Price
-            if product.competitor_price:
-                try:
-                    new_price = eval(f"{product.competitor_price} + {product.strategy.beat_by}")
-                    new_price = round(new_price, 2)
-                    product.updated_price = round(
-                        new_price_processor.process_price(new_price, seller_id, asin), 2
-                    )
-                except SkipProductRepricing as e:
-                    print(f'Business price is skipped... {e}')
-
-            # For Business Quantity Tiers
-            for tier in product.tiers.values():
-                try:
-                    new_price_processor = NewPriceProcessor(tier)
-                    if not tier.competitor_price:
-                        continue
-                    
-                    new_price = eval(f"{tier.competitor_price}+{product.strategy.beat_by}")
-                    new_price = round(new_price, 2)
-
-                    tier.strategy = product.strategy
-                    tier.strategy_id = product.strategy_id
-                    tier.updated_price = round(
-                        new_price_processor.process_price(new_price, seller_id, asin), 2
-                    )
-                except SkipProductRepricing as e:
-                    print(f'Tier is skipped... {e}')
-
-    def _get_product_pricing_message(self, product: Any, strategy: str) -> str:
-        """Get pricing message for product."""
-        # TODO: Implement proper message generation
-        return f"Applied {strategy} strategy to {product.asin}"
+            # B2B pricing (both standard and tiers)
+            self.apply_b2b_standard_pricing()
+            self.apply_b2b_tier_pricing()
+    
+    def _apply_standard_pricing(self) -> None:
+        """Apply strategy to standard (non-B2B) product."""
+        try:
+            if not self.product.competitor_price:
+                raise SkipProductRepricing("No competitor price available")
+            
+            seller_id = getattr(self.product, 'seller_id', getattr(self.product.account, 'seller_id', 'unknown'))
+            asin = self.product.asin
+            
+            # Calculate competitive price
+            raw_price = self.calculate_competitive_price(
+                self.product.competitor_price,
+                self.product.strategy.beat_by
+            )
+            
+            # Process price with bounds checking
+            processed_price = self.process_price_with_bounds_check(
+                raw_price, seller_id, asin
+            )
+            
+            # Set the results
+            self.product.updated_price = processed_price
+            self.set_strategy_metadata(self.product)
+            self.product.message = self.get_product_pricing_message(self.product, self.get_strategy_name())
+            
+            self.logger.info(
+                f"Standard pricing applied: {processed_price}",
+                extra={
+                    "competitor_price": self.product.competitor_price,
+                    "beat_by": self.product.strategy.beat_by,
+                    "final_price": processed_price
+                }
+            )
+            
+        except (SkipProductRepricing, PriceBoundsError) as e:
+            self.logger.warning(f"Standard pricing failed: {e}")
+            # Re-raise the exception so caller knows pricing failed
+            raise e
+        except Exception as e:
+            self.logger.error(f"Unexpected error in standard pricing: {e}")
+            raise SkipProductRepricing(f"Standard pricing error: {e}")

@@ -1,0 +1,3 @@
+"""
+urepricer tests package.
+"""

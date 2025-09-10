@@ -219,10 +219,10 @@ def test_updated_test_case():
             max_price=Decimal("100.00")
         )
         print("❌ Should have raised ValueError during object creation")
-        return False
+        assert False, "Should have raised ValueError during object creation"
     except ValueError as e:
         print(f"✅ SQLAlchemy validator correctly caught min > max during creation: {e}")
-        return True
+        # Test passes - no need to return anything
 
 
 if __name__ == "__main__":

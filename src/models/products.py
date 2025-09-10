@@ -4,7 +4,7 @@ Replaces SQLAlchemy models with Redis-based JsonModel architecture.
 """
 from typing import Optional, Dict, Any
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, UTC
 
 from redis_om import JsonModel, EmbeddedJsonModel, Field
 from pydantic import field_validator
@@ -100,10 +100,10 @@ class ProductListing(JsonModel):
     
     # Timestamps
     last_price_update: Optional[datetime] = None
-    last_seen: datetime = Field(default_factory=datetime.utcnow)
-    data_freshness: datetime = Field(default_factory=datetime.utcnow)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    last_seen: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    data_freshness: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     
     @field_validator('max_price')
     @classmethod

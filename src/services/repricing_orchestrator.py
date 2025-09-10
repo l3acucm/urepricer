@@ -3,7 +3,7 @@
 import asyncio
 import time
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, UTC
 from concurrent.futures import ThreadPoolExecutor
 from loguru import logger
 
@@ -313,7 +313,7 @@ class RepricingOrchestrator:
             "message_processor": "healthy",
             "repricing_engine": "healthy",
             "stats": self.stats.copy(),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(UTC).isoformat()
         }
         
         # Calculate average processing time
@@ -334,7 +334,7 @@ class RepricingOrchestrator:
     def get_processing_stats(self) -> Dict[str, Any]:
         """Get current processing statistics."""
         stats = self.stats.copy()
-        stats["timestamp"] = datetime.utcnow().isoformat()
+        stats["timestamp"] = datetime.now(UTC).isoformat()
         
         if stats["messages_processed"] > 0:
             stats["success_rate"] = round(

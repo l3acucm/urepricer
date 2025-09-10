@@ -4,19 +4,48 @@ from typing import Dict, Any, List
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from contextlib import asynccontextmanager
 import asyncio
-from datetime import datetime
+from datetime import datetime, UTC
 from loguru import logger
 
 from ..services.repricing_orchestrator import RepricingOrchestrator
 from ..services.redis_service import RedisService
 
 
+# Global services (will be initialized on startup)
+redis_service = None
+orchestrator = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Handle application startup and shutdown."""
+    global redis_service, orchestrator
+    
+    # Startup
+    redis_service = RedisService()
+    orchestrator = RepricingOrchestrator(
+        redis_service=redis_service,
+        max_concurrent_workers=100,  # High concurrency for webhooks
+        batch_size=50
+    )
+    logger.info("FastAPI application started with repricing services")
+    
+    yield
+    
+    # Shutdown
+    if orchestrator:
+        await orchestrator.shutdown()
+    logger.info("FastAPI application shutdown complete")
+
+
 # Initialize FastAPI app
 app = FastAPI(
     title="Arbitrage Hero Repricer API",
     description="High-throughput repricing API for Amazon and Walmart",
-    version="2.0.0"
+    version="2.0.0",
+    lifespan=lifespan
 )
 
 # Add CORS middleware
@@ -27,33 +56,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Global services (will be initialized on startup)
-redis_service = None
-orchestrator = None
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize services on startup."""
-    global redis_service, orchestrator
-    
-    redis_service = RedisService()
-    orchestrator = RepricingOrchestrator(
-        redis_service=redis_service,
-        max_concurrent_workers=100,  # High concurrency for webhooks
-        batch_size=50
-    )
-    
-    logger.info("FastAPI application started with repricing services")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown."""
-    if orchestrator:
-        await orchestrator.shutdown()
-    logger.info("FastAPI application shutdown complete")
 
 
 def get_orchestrator() -> RepricingOrchestrator:
@@ -107,7 +109,7 @@ async def process_walmart_webhook(
     This endpoint receives Walmart webhooks about buy box changes and processes them
     through the complete repricing pipeline asynchronously for high throughput.
     """
-    start_time = datetime.utcnow()
+    start_time = datetime.now(UTC)
     
     try:
         # Validate basic webhook structure
@@ -175,7 +177,7 @@ async def process_walmart_webhook_batch(
     This endpoint allows processing multiple webhook notifications at once,
     which is more efficient for high-volume scenarios.
     """
-    start_time = datetime.utcnow()
+    start_time = datetime.now(UTC)
     
     try:
         if not webhooks:
@@ -254,7 +256,7 @@ async def process_test_amazon_sqs(
     This is primarily for testing the Amazon SQS processing logic.
     In production, SQS messages would be consumed by the SQS consumer service.
     """
-    start_time = datetime.utcnow()
+    start_time = datetime.now(UTC)
     
     try:
         # Validate basic SQS message structure
@@ -414,7 +416,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={
             "error": "Internal server error",
             "message": "An unexpected error occurred",
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(UTC).isoformat()
         }
     )
 

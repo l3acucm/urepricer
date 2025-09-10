@@ -3,7 +3,7 @@
 import json
 import asyncio
 from typing import Dict, Any, List, Optional, Union
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from enum import Enum
 from loguru import logger
 import boto3
@@ -53,7 +53,7 @@ class RepricingError:
         self.original_exception = original_exception
         self.retry_count = retry_count
         self.max_retries = max_retries
-        self.timestamp = datetime.utcnow()
+        self.timestamp = datetime.now(UTC)
         self.error_id = self._generate_error_id()
     
     def _generate_error_id(self) -> str:
@@ -257,7 +257,7 @@ class ErrorHandler:
             dlq_message = {
                 "original_message": message,
                 "error_info": error.to_dict(),
-                "failed_at": datetime.utcnow().isoformat(),
+                "failed_at": datetime.now(UTC).isoformat(),
                 "queue_type": queue_type
             }
             
@@ -433,7 +433,7 @@ class ErrorHandler:
     def get_error_stats(self) -> Dict[str, Any]:
         """Get current error statistics."""
         stats = self.error_stats.copy()
-        stats["timestamp"] = datetime.utcnow().isoformat()
+        stats["timestamp"] = datetime.now(UTC).isoformat()
         return stats
     
     def reset_error_stats(self):
@@ -487,7 +487,7 @@ class CircuitBreaker:
         """Check if circuit breaker should attempt to reset."""
         return (
             self.last_failure_time and
-            datetime.utcnow() - self.last_failure_time >= timedelta(seconds=self.recovery_timeout)
+            datetime.now(UTC) - self.last_failure_time >= timedelta(seconds=self.recovery_timeout)
         )
     
     def _on_success(self):
@@ -498,7 +498,7 @@ class CircuitBreaker:
     def _on_failure(self):
         """Handle failed call."""
         self.failure_count += 1
-        self.last_failure_time = datetime.utcnow()
+        self.last_failure_time = datetime.now(UTC)
         
         if self.failure_count >= self.failure_threshold:
             self.state = "OPEN"

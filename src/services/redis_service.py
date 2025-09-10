@@ -3,7 +3,7 @@
 import json
 import asyncio
 from typing import Dict, Any, Optional, List, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 import redis.asyncio as redis
 from loguru import logger
 
@@ -211,8 +211,8 @@ class RedisService:
                 "asin": asin,
                 "seller_id": seller_id,
                 "sku": sku,
-                "saved_at": datetime.utcnow().isoformat(),
-                "expires_at": (datetime.utcnow() + timedelta(seconds=ttl)).isoformat()
+                "saved_at": datetime.now(UTC).isoformat(),
+                "expires_at": (datetime.now(UTC) + timedelta(seconds=ttl)).isoformat()
             }
             
             # Redis key for calculated prices
@@ -269,7 +269,7 @@ class RedisService:
                 expires_at_str = price_data.get("expires_at")
                 if expires_at_str:
                     expires_at = datetime.fromisoformat(expires_at_str)
-                    if datetime.utcnow() > expires_at:
+                    if datetime.now(UTC) > expires_at:
                         await redis_client.hdel(redis_key, sku)
                         return None
                 

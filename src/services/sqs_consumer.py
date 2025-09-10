@@ -5,7 +5,7 @@ import json
 import time
 from typing import Dict, Any, List, Optional
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, UTC
 from loguru import logger
 import boto3
 from botocore.exceptions import ClientError, BotoCoreError
@@ -86,7 +86,7 @@ class SQSConsumer:
             return
         
         self.is_running = True
-        self.consumer_stats["start_time"] = datetime.utcnow()
+        self.consumer_stats["start_time"] = datetime.now(UTC)
         
         self.logger.info(
             f"Starting SQS consumer for {len(queue_urls)} queues",
@@ -361,7 +361,7 @@ class SQSConsumer:
                 await asyncio.sleep(60)  # Report every minute
                 
                 if self.consumer_stats["start_time"]:
-                    uptime = datetime.utcnow() - self.consumer_stats["start_time"]
+                    uptime = datetime.now(UTC) - self.consumer_stats["start_time"]
                     uptime_seconds = uptime.total_seconds()
                     
                     messages_per_second = (
@@ -402,7 +402,7 @@ class SQSConsumer:
         stats = self.consumer_stats.copy()
         
         if stats["start_time"]:
-            uptime = datetime.utcnow() - stats["start_time"]
+            uptime = datetime.now(UTC) - stats["start_time"]
             stats["uptime_seconds"] = int(uptime.total_seconds())
             
             if stats["uptime_seconds"] > 0:
@@ -419,7 +419,7 @@ class SQSConsumer:
         else:
             stats["success_rate"] = 0.0
         
-        stats["timestamp"] = datetime.utcnow().isoformat()
+        stats["timestamp"] = datetime.now(UTC).isoformat()
         return stats
 
 

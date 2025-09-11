@@ -1,464 +1,290 @@
-"""Amazon SQS consumer for ANY_OFFER_CHANGED notifications."""
+"""SQS Consumer for Amazon notifications."""
 
-import asyncio
 import json
-import time
+import asyncio
 from typing import Dict, Any, List, Optional
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, UTC
-from loguru import logger
 import boto3
-from botocore.exceptions import ClientError, BotoCoreError
+from botocore.exceptions import ClientError, NoCredentialsError
+from loguru import logger
 
-from ..services.repricing_orchestrator import RepricingOrchestrator
-from ..services.redis_service import RedisService
 from ..core.config import get_settings
 
 
 class SQSConsumer:
-    """
-    High-throughput SQS consumer for Amazon ANY_OFFER_CHANGED notifications.
+    """SQS Consumer that works with both AWS SQS and LocalStack."""
     
-    This consumer polls SQS queues continuously and processes messages through
-    the repricing pipeline with proper error handling and dead letter queue support.
-    """
-    
-    def __init__(
-        self,
-        orchestrator: RepricingOrchestrator,
-        max_concurrent_messages: int = 50,
-        batch_size: int = 10,
-        visibility_timeout: int = 300,  # 5 minutes
-        wait_time_seconds: int = 20,    # Long polling
-        max_retries: int = 3
-    ):
+    def __init__(self):
         self.settings = get_settings()
-        self.orchestrator = orchestrator
-        self.logger = logger.bind(service="sqs_consumer")
+        self.sqs_client = None
+        self.running = False
+        self.queue_urls = {}
         
-        # SQS settings
-        self.batch_size = min(batch_size, 10)  # SQS limit is 10
-        self.visibility_timeout = visibility_timeout
-        self.wait_time_seconds = wait_time_seconds
-        self.max_retries = max_retries
-        self.max_concurrent_messages = max_concurrent_messages
-        
-        # Initialize SQS client
-        self.sqs = boto3.client(
-            'sqs',
-            region_name=getattr(self.settings, 'aws_region', 'us-east-1'),
-            aws_access_key_id=getattr(self.settings, 'aws_access_key_id', None),
-            aws_secret_access_key=getattr(self.settings, 'aws_secret_access_key', None)
-        )
-        
-        # Consumer state
-        self.is_running = False
-        self.consumer_tasks = []
-        
-        # Processing metrics
-        self.consumer_stats = {
-            "messages_received": 0,
-            "messages_processed": 0,
-            "messages_failed": 0,
-            "messages_sent_to_dlq": 0,
-            "empty_polls": 0,
-            "processing_errors": 0,
-            "start_time": None
-        }
-        
-        # Semaphore for concurrency control
-        self.processing_semaphore = asyncio.Semaphore(max_concurrent_messages)
-    
-    async def start_consuming(
-        self,
-        queue_urls: List[str],
-        num_consumers_per_queue: int = 2
-    ):
-        """
-        Start consuming messages from SQS queues.
-        
-        Args:
-            queue_urls: List of SQS queue URLs to consume from
-            num_consumers_per_queue: Number of concurrent consumers per queue
-        """
-        if self.is_running:
-            self.logger.warning("SQS consumer is already running")
-            return
-        
-        self.is_running = True
-        self.consumer_stats["start_time"] = datetime.now(UTC)
-        
-        self.logger.info(
-            f"Starting SQS consumer for {len(queue_urls)} queues",
-            extra={
-                "queue_count": len(queue_urls),
-                "consumers_per_queue": num_consumers_per_queue,
-                "batch_size": self.batch_size,
-                "max_concurrent": self.max_concurrent_messages
-            }
-        )
-        
-        # Start consumer tasks for each queue
-        for queue_url in queue_urls:
-            for consumer_id in range(num_consumers_per_queue):
-                task = asyncio.create_task(
-                    self._consume_queue_messages(queue_url, consumer_id),
-                    name=f"sqs_consumer_{queue_url.split('/')[-1]}_{consumer_id}"
-                )
-                self.consumer_tasks.append(task)
-        
-        # Start stats reporting task
-        stats_task = asyncio.create_task(
-            self._report_stats_periodically(),
-            name="sqs_consumer_stats"
-        )
-        self.consumer_tasks.append(stats_task)
-        
+    async def initialize(self):
+        """Initialize SQS client and discover queues."""
         try:
-            # Wait for all consumer tasks
-            await asyncio.gather(*self.consumer_tasks)
-        except asyncio.CancelledError:
-            self.logger.info("SQS consumer tasks cancelled")
+            # Configure SQS client (works with both AWS SQS and LocalStack)
+            if self.settings.aws_endpoint_url:
+                # Development/testing with LocalStack
+                self.sqs_client = boto3.client(
+                    'sqs',
+                    endpoint_url=self.settings.aws_endpoint_url,
+                    region_name='us-east-1',
+                    aws_access_key_id='test',  # LocalStack doesn't validate these
+                    aws_secret_access_key='test'
+                )
+            else:
+                # Production with real AWS SQS
+                self.sqs_client = boto3.client(
+                    'sqs',
+                    region_name='us-east-1'
+                )
+            
+            # Discover available queues
+            await self._discover_queues()
+            logger.info(f"SQS Consumer initialized with queues: {list(self.queue_urls.keys())}")
+            
         except Exception as e:
-            self.logger.error(f"SQS consumer error: {str(e)}")
-        finally:
-            await self._cleanup()
+            logger.error(f"Failed to initialize SQS consumer: {e}")
+            raise
     
-    async def stop_consuming(self):
-        """Stop consuming messages and cleanup resources."""
-        if not self.is_running:
-            return
-        
-        self.logger.info("Stopping SQS consumer...")
-        self.is_running = False
-        
-        # Cancel all consumer tasks
-        for task in self.consumer_tasks:
-            if not task.done():
-                task.cancel()
-        
-        # Wait for tasks to complete with timeout
-        if self.consumer_tasks:
-            try:
-                await asyncio.wait_for(
-                    asyncio.gather(*self.consumer_tasks, return_exceptions=True),
-                    timeout=30.0  # 30 second shutdown timeout
-                )
-            except asyncio.TimeoutError:
-                self.logger.warning("Some consumer tasks did not shutdown gracefully")
-        
-        await self._cleanup()
-        self.logger.info("SQS consumer stopped")
-    
-    async def _consume_queue_messages(self, queue_url: str, consumer_id: int):
-        """Main consumer loop for a specific queue."""
-        queue_name = queue_url.split('/')[-1]
-        consumer_logger = self.logger.bind(queue=queue_name, consumer_id=consumer_id)
-        
-        consumer_logger.info(f"Started SQS consumer for queue {queue_name}")
-        
-        consecutive_empty_polls = 0
-        max_empty_polls = 5  # Back off after empty polls
-        
-        while self.is_running:
-            try:
-                # Receive messages from SQS
-                messages = await self._receive_messages(queue_url)
-                
-                if not messages:
-                    consecutive_empty_polls += 1
-                    self.consumer_stats["empty_polls"] += 1
-                    
-                    # Progressive backoff for empty polls
-                    if consecutive_empty_polls >= max_empty_polls:
-                        await asyncio.sleep(min(consecutive_empty_polls * 2, 30))
-                    
-                    continue
-                
-                consecutive_empty_polls = 0
-                self.consumer_stats["messages_received"] += len(messages)
-                
-                consumer_logger.debug(
-                    f"Received {len(messages)} messages from {queue_name}"
-                )
-                
-                # Process messages concurrently
-                await self._process_message_batch(messages, queue_url, consumer_logger)
-                
-            except asyncio.CancelledError:
-                consumer_logger.info(f"Consumer for {queue_name} cancelled")
-                break
-            except Exception as e:
-                consumer_logger.error(
-                    f"Error in consumer loop for {queue_name}: {str(e)}"
-                )
-                self.consumer_stats["processing_errors"] += 1
-                
-                # Brief pause before retrying to avoid tight error loops
-                await asyncio.sleep(5)
-    
-    async def _receive_messages(self, queue_url: str) -> List[Dict[str, Any]]:
-        """Receive messages from SQS queue."""
+    async def _discover_queues(self):
+        """Discover available SQS queues."""
         try:
-            loop = asyncio.get_event_loop()
+            response = self.sqs_client.list_queues()
             
-            # Run SQS receive_message in thread pool to avoid blocking
-            response = await loop.run_in_executor(
-                None,
-                lambda: self.sqs.receive_message(
-                    QueueUrl=queue_url,
-                    MaxNumberOfMessages=self.batch_size,
-                    WaitTimeSeconds=self.wait_time_seconds,
-                    VisibilityTimeoutSeconds=self.visibility_timeout,
-                    AttributeNames=['All'],
-                    MessageAttributeNames=['All']
-                )
-            )
-            
-            messages = response.get('Messages', [])
-            return messages
-            
-        except (ClientError, BotoCoreError) as e:
-            self.logger.error(f"AWS error receiving messages: {str(e)}")
-            return []
-        except Exception as e:
-            self.logger.error(f"Unexpected error receiving messages: {str(e)}")
-            return []
-    
-    async def _process_message_batch(
-        self,
-        messages: List[Dict[str, Any]],
-        queue_url: str,
-        consumer_logger
-    ):
-        """Process a batch of SQS messages concurrently."""
-        semaphore = asyncio.Semaphore(self.max_concurrent_messages)
-        
-        async def process_single_message(message: Dict[str, Any]):
-            async with semaphore:
-                await self._process_single_message(message, queue_url, consumer_logger)
-        
-        # Process all messages in the batch concurrently
-        tasks = [process_single_message(msg) for msg in messages]
-        await asyncio.gather(*tasks, return_exceptions=True)
-    
-    async def _process_single_message(
-        self,
-        message: Dict[str, Any],
-        queue_url: str,
-        consumer_logger
-    ):
-        """Process a single SQS message through the repricing pipeline."""
-        message_id = message.get('MessageId', 'unknown')
-        receipt_handle = message.get('ReceiptHandle')
-        
-        start_time = time.time()
-        
-        try:
-            # Process message through orchestrator
-            result = await self.orchestrator.process_amazon_message(message)
-            
-            processing_time = (time.time() - start_time) * 1000
-            
-            if result["success"]:
-                # Message processed successfully - delete from queue
-                await self._delete_message(queue_url, receipt_handle)
-                self.consumer_stats["messages_processed"] += 1
+            for queue_url in response.get('QueueUrls', []):
+                queue_name = queue_url.split('/')[-1]
+                self.queue_urls[queue_name] = queue_url
+                logger.info(f"Discovered queue: {queue_name} -> {queue_url}")
                 
-                consumer_logger.info(
-                    f"Message {message_id} processed successfully",
-                    extra={
-                        "message_id": message_id,
-                        "price_changed": result.get("price_changed", False),
-                        "processing_time_ms": processing_time
+        except ClientError as e:
+            logger.warning(f"Could not discover queues: {e}")
+            # Create default queues if they don't exist
+            await self._create_default_queues()
+    
+    async def _create_default_queues(self):
+        """Create default queues if they don't exist."""
+        default_queues = [
+            'amazon-any-offer-changed-queue',
+            'feed-processing-queue',
+            'processed-data-queue'
+        ]
+        
+        for queue_name in default_queues:
+            try:
+                response = self.sqs_client.create_queue(
+                    QueueName=queue_name,
+                    Attributes={
+                        'VisibilityTimeoutSeconds': '60',
+                        'MessageRetentionPeriod': '1209600'  # 14 days
                     }
                 )
-            else:
-                # Message failed - check retry count
-                await self._handle_failed_message(
-                    message, queue_url, receipt_handle, result, consumer_logger
-                )
-                self.consumer_stats["messages_failed"] += 1
-            
-        except Exception as e:
-            processing_time = (time.time() - start_time) * 1000
-            
-            consumer_logger.error(
-                f"Exception processing message {message_id}: {str(e)}",
-                extra={
-                    "message_id": message_id,
-                    "processing_time_ms": processing_time
-                }
-            )
-            
-            await self._handle_failed_message(
-                message, queue_url, receipt_handle, 
-                {"error": str(e), "success": False}, consumer_logger
-            )
-            self.consumer_stats["messages_failed"] += 1
+                self.queue_urls[queue_name] = response['QueueUrl']
+                logger.info(f"Created queue: {queue_name}")
+                
+            except ClientError as e:
+                if e.response['Error']['Code'] != 'QueueAlreadyExists':
+                    logger.error(f"Failed to create queue {queue_name}: {e}")
     
-    async def _handle_failed_message(
-        self,
-        message: Dict[str, Any],
-        queue_url: str,
-        receipt_handle: str,
-        result: Dict[str, Any],
-        consumer_logger
-    ):
-        """Handle a message that failed processing."""
-        message_id = message.get('MessageId', 'unknown')
+    async def start_consuming(self, queue_names: Optional[List[str]] = None):
+        """Start consuming messages from specified queues."""
+        if not self.sqs_client:
+            await self.initialize()
         
-        # Get current retry count from message attributes
-        attributes = message.get('Attributes', {})
-        receive_count = int(attributes.get('ApproximateReceiveCount', 1))
+        if not queue_names:
+            queue_names = list(self.queue_urls.keys())
         
-        if receive_count >= self.max_retries:
-            # Max retries exceeded - send to dead letter queue (if configured)
-            consumer_logger.warning(
-                f"Message {message_id} exceeded max retries ({self.max_retries})",
-                extra={
-                    "message_id": message_id,
-                    "receive_count": receive_count,
-                    "error": result.get("error", "unknown")
-                }
-            )
-            
-            # Delete the message to prevent further processing
-            # (SQS DLQ should be configured to handle these automatically)
-            await self._delete_message(queue_url, receipt_handle)
-            self.consumer_stats["messages_sent_to_dlq"] += 1
-        else:
-            # Let the message become visible again for retry
-            # (after visibility timeout expires)
-            consumer_logger.info(
-                f"Message {message_id} will be retried (attempt {receive_count}/{self.max_retries})",
-                extra={
-                    "message_id": message_id,
-                    "receive_count": receive_count,
-                    "error": result.get("error", "unknown")
-                }
-            )
-    
-    async def _delete_message(self, queue_url: str, receipt_handle: str):
-        """Delete a message from SQS queue."""
+        self.running = True
+        logger.info(f"Starting SQS consumer for queues: {queue_names}")
+        
+        # Start consumer tasks for each queue
+        tasks = []
+        for queue_name in queue_names:
+            if queue_name in self.queue_urls:
+                task = asyncio.create_task(self._consume_queue(queue_name))
+                tasks.append(task)
+        
+        # Wait for all consumer tasks
         try:
-            loop = asyncio.get_event_loop()
-            
-            await loop.run_in_executor(
-                None,
-                lambda: self.sqs.delete_message(
-                    QueueUrl=queue_url,
-                    ReceiptHandle=receipt_handle
-                )
-            )
+            await asyncio.gather(*tasks)
         except Exception as e:
-            self.logger.error(f"Failed to delete message: {str(e)}")
+            logger.error(f"Error in SQS consumer: {e}")
+        finally:
+            self.running = False
     
-    async def _report_stats_periodically(self):
-        """Report consumer statistics periodically."""
-        while self.is_running:
+    async def _consume_queue(self, queue_name: str):
+        """Consume messages from a specific queue."""
+        queue_url = self.queue_urls[queue_name]
+        logger.info(f"Starting consumer for queue: {queue_name}")
+        
+        while self.running:
             try:
-                await asyncio.sleep(60)  # Report every minute
-                
-                if self.consumer_stats["start_time"]:
-                    uptime = datetime.now(UTC) - self.consumer_stats["start_time"]
-                    uptime_seconds = uptime.total_seconds()
-                    
-                    messages_per_second = (
-                        self.consumer_stats["messages_processed"] / uptime_seconds
-                        if uptime_seconds > 0 else 0
-                    )
-                    
-                    self.logger.info(
-                        "SQS Consumer Stats",
-                        extra={
-                            "uptime_seconds": int(uptime_seconds),
-                            "messages_received": self.consumer_stats["messages_received"],
-                            "messages_processed": self.consumer_stats["messages_processed"],
-                            "messages_failed": self.consumer_stats["messages_failed"],
-                            "messages_sent_to_dlq": self.consumer_stats["messages_sent_to_dlq"],
-                            "empty_polls": self.consumer_stats["empty_polls"],
-                            "processing_errors": self.consumer_stats["processing_errors"],
-                            "messages_per_second": round(messages_per_second, 2),
-                            "success_rate": round(
-                                (self.consumer_stats["messages_processed"] / 
-                                 max(self.consumer_stats["messages_received"], 1)) * 100, 2
-                            )
-                        }
-                    )
-                
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self.logger.error(f"Error reporting stats: {str(e)}")
-    
-    async def _cleanup(self):
-        """Cleanup resources."""
-        self.is_running = False
-        self.consumer_tasks.clear()
-    
-    def get_consumer_stats(self) -> Dict[str, Any]:
-        """Get current consumer statistics."""
-        stats = self.consumer_stats.copy()
-        
-        if stats["start_time"]:
-            uptime = datetime.now(UTC) - stats["start_time"]
-            stats["uptime_seconds"] = int(uptime.total_seconds())
-            
-            if stats["uptime_seconds"] > 0:
-                stats["messages_per_second"] = round(
-                    stats["messages_processed"] / stats["uptime_seconds"], 2
+                # Poll for messages
+                response = self.sqs_client.receive_message(
+                    QueueUrl=queue_url,
+                    MaxNumberOfMessages=10,
+                    WaitTimeSeconds=5,  # Long polling
+                    VisibilityTimeoutSeconds=60
                 )
+                
+                messages = response.get('Messages', [])
+                
+                if messages:
+                    logger.info(f"Received {len(messages)} messages from {queue_name}")
+                    
+                    for message in messages:
+                        await self._process_message(queue_name, message)
+                        
+                        # Delete processed message
+                        self.sqs_client.delete_message(
+                            QueueUrl=queue_url,
+                            ReceiptHandle=message['ReceiptHandle']
+                        )
+                
+                # Small delay to prevent busy waiting
+                await asyncio.sleep(0.1)
+                
+            except ClientError as e:
+                logger.error(f"Error consuming from {queue_name}: {e}")
+                await asyncio.sleep(5)  # Back off on errors
+            except Exception as e:
+                logger.error(f"Unexpected error in queue consumer {queue_name}: {e}")
+                await asyncio.sleep(1)
+    
+    async def _process_message(self, queue_name: str, message: Dict[str, Any]):
+        """Process a single SQS message."""
+        try:
+            message_id = message.get('MessageId', 'unknown')
+            body = message.get('Body', '{}')
+            
+            logger.info(f"Processing message {message_id} from {queue_name}")
+            
+            # Parse message body
+            try:
+                parsed_body = json.loads(body)
+            except json.JSONDecodeError:
+                logger.warning(f"Invalid JSON in message {message_id}: {body}")
+                return
+            
+            # Route message based on queue name
+            if 'amazon-any-offer-changed' in queue_name:
+                await self._process_amazon_notification(parsed_body)
+            elif 'feed-processing' in queue_name:
+                await self._process_feed_notification(parsed_body)
             else:
-                stats["messages_per_second"] = 0.0
+                logger.info(f"Unknown queue type: {queue_name}, logging message")
+                logger.debug(f"Message content: {parsed_body}")
+            
+        except Exception as e:
+            logger.error(f"Error processing message: {e}")
+    
+    async def _process_amazon_notification(self, notification: Dict[str, Any]):
+        """Process Amazon AnyOfferChanged notification."""
+        try:
+            # Extract ASIN and Seller info
+            payload = notification.get('Payload', {})
+            any_offer_changed = payload.get('AnyOfferChangedNotification', {})
+            
+            asin = any_offer_changed.get('ASIN')
+            seller_id = any_offer_changed.get('SellerId')
+            
+            if asin and seller_id:
+                logger.info(f"Processing Amazon notification for ASIN: {asin}, Seller: {seller_id}")
+                
+                # Here you would integrate with your repricing engine
+                # For now, just simulate processing
+                await asyncio.sleep(0.1)
+                
+                logger.info(f"Amazon notification processed successfully: ASIN={asin}")
+            else:
+                logger.warning("Amazon notification missing ASIN or SellerId")
+                
+        except Exception as e:
+            logger.error(f"Error processing Amazon notification: {e}")
+    
+    async def _process_feed_notification(self, notification: Dict[str, Any]):
+        """Process feed processing notification."""
+        try:
+            feed_id = notification.get('feedId', 'unknown')
+            status = notification.get('status', 'unknown')
+            
+            logger.info(f"Processing feed notification: {feed_id} - {status}")
+            
+            # Simulate feed processing
+            await asyncio.sleep(0.1)
+            
+            logger.info(f"Feed notification processed: {feed_id}")
+            
+        except Exception as e:
+            logger.error(f"Error processing feed notification: {e}")
+    
+    async def send_test_message(self, queue_name: str, message_body: Dict[str, Any]):
+        """Send a test message to a queue (useful for testing)."""
+        if not self.sqs_client:
+            await self.initialize()
         
-        if stats["messages_received"] > 0:
-            stats["success_rate"] = round(
-                (stats["messages_processed"] / stats["messages_received"]) * 100, 2
+        if queue_name not in self.queue_urls:
+            raise ValueError(f"Queue {queue_name} not found")
+        
+        try:
+            response = self.sqs_client.send_message(
+                QueueUrl=self.queue_urls[queue_name],
+                MessageBody=json.dumps(message_body)
             )
-        else:
-            stats["success_rate"] = 0.0
+            
+            logger.info(f"Test message sent to {queue_name}: {response['MessageId']}")
+            return response['MessageId']
+            
+        except Exception as e:
+            logger.error(f"Failed to send test message: {e}")
+            raise
+    
+    async def stop(self):
+        """Stop the consumer."""
+        self.running = False
+        logger.info("SQS consumer stopped")
+    
+    def get_queue_stats(self) -> Dict[str, Any]:
+        """Get statistics about the queues."""
+        stats = {}
         
-        stats["timestamp"] = datetime.now(UTC).isoformat()
+        if not self.sqs_client:
+            return stats
+        
+        for queue_name, queue_url in self.queue_urls.items():
+            try:
+                response = self.sqs_client.get_queue_attributes(
+                    QueueUrl=queue_url,
+                    AttributeNames=['ApproximateNumberOfMessages', 'ApproximateNumberOfMessagesNotVisible']
+                )
+                
+                stats[queue_name] = {
+                    'url': queue_url,
+                    'visible_messages': int(response['Attributes'].get('ApproximateNumberOfMessages', 0)),
+                    'in_flight_messages': int(response['Attributes'].get('ApproximateNumberOfMessagesNotVisible', 0))
+                }
+                
+            except Exception as e:
+                logger.warning(f"Could not get stats for queue {queue_name}: {e}")
+                stats[queue_name] = {'error': str(e)}
+        
         return stats
 
 
-async def main():
-    """Main function to run SQS consumer."""
-    import signal
-    import sys
-    
-    # Initialize services
-    redis_service = RedisService()
-    orchestrator = RepricingOrchestrator(redis_service)
-    consumer = SQSConsumer(orchestrator)
-    
-    # Example queue URLs (replace with actual queue URLs)
-    queue_urls = [
-        "https://sqs.us-east-1.amazonaws.com/123456789012/ah-repricer-notifications"
-        # Add more queue URLs as needed
-    ]
-    
-    # Handle graceful shutdown
-    def signal_handler(signum, frame):
-        print(f"\nReceived signal {signum}, shutting down...")
-        asyncio.create_task(consumer.stop_consuming())
-    
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
-    try:
-        logger.info("Starting SQS consumer...")
-        await consumer.start_consuming(queue_urls)
-    except KeyboardInterrupt:
-        logger.info("Received keyboard interrupt")
-    except Exception as e:
-        logger.error(f"SQS consumer error: {str(e)}")
-    finally:
-        await consumer.stop_consuming()
-        await orchestrator.shutdown()
-        logger.info("SQS consumer shutdown complete")
+# Global instance
+sqs_consumer = SQSConsumer()
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
+async def start_sqs_consumer():
+    """Start the SQS consumer (to be called from main app)."""
+    await sqs_consumer.start_consuming()
+
+
+async def stop_sqs_consumer():
+    """Stop the SQS consumer."""
+    await sqs_consumer.stop()
+
+
+def get_sqs_consumer() -> SQSConsumer:
+    """Get the global SQS consumer instance."""
+    return sqs_consumer

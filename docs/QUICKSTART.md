@@ -107,14 +107,52 @@ pytest --cov=src --cov-report=html
 
 ### Test Price Change Notifications
 
-#### Amazon SQS Message Test
+#### Setup SQS Integration
 
 ```bash
-curl -X POST http://localhost:8000/amazon/sqs-webhook \
-  -H "Content-Type: application/json" \
-  -d '{
-    "MessageId": "test-msg-123",
-    "Body": "{\"NotificationType\": \"AnyOfferChanged\", \"Payload\": {\"AnyOfferChangedNotification\": {\"ASIN\": \"B01234567890\", \"SellerId\": \"A1234567890123\"}}}"
+# Initialize SQS queues (LocalStack for dev/test, AWS SQS for production)
+curl -X POST http://localhost:8000/sqs/initialize
+
+# Check SQS queue status
+curl http://localhost:8000/sqs/status
+```
+
+**Expected Output:**
+```json
+{
+  "status": "success",
+  "queues": {
+    "amazon-any-offer-changed-queue": {
+      "url": "http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/amazon-any-offer-changed-queue",
+      "visible_messages": 0,
+      "in_flight_messages": 0
+    },
+    "feed-processing-queue": {...},
+    "processed-data-queue": {...}
+  }
+}
+```
+
+#### Amazon SQS Message Processing
+
+Amazon SQS messages are now processed automatically by the dedicated SQS consumer service. The consumer polls the queues continuously and processes AnyOfferChanged notifications automatically.
+
+```bash
+# Check SQS queue status to see any pending messages
+curl http://localhost:8000/sqs/status
+
+# To test message processing, you can send messages directly to LocalStack SQS:
+awslocal sqs send-message \
+  --queue-url http://localhost:4566/000000000000/amazon-any-offer-changed-queue \
+  --message-body '{
+    "NotificationType": "AnyOfferChanged",
+    "Payload": {
+      "AnyOfferChangedNotification": {
+        "ASIN": "B01234567890",
+        "SellerId": "A1234567890123",
+        "MarketplaceId": "ATVPDKIKX0DER"
+      }
+    }
   }'
 ```
 

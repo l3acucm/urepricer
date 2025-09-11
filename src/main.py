@@ -8,11 +8,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from src.core.config import get_settings
-from src.core.database import create_tables
-from src.api.accounts.router import router as accounts_router
-from src.api.repricing.router import router as repricing_router
-from src.api.feeds.router import router as feeds_router
-from src.api.listings.router import router as listings_router
+# from src.core.database import create_tables
+from src.api.webhook_router import router as webhook_router
+from src.services.sqs_consumer import get_sqs_consumer
+# from src.api.accounts.router import router as accounts_router
+# from src.api.repricing.router import router as repricing_router
+# from src.api.feeds.router import router as feeds_router
+# from src.api.listings.router import router as listings_router
 
 
 @asynccontextmanager
@@ -21,7 +23,15 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Arbitrage Hero API...")
     
     # Create database tables if needed
-    await create_tables()
+    # await create_tables()
+    
+    # Initialize SQS consumer
+    try:
+        sqs_consumer = get_sqs_consumer()
+        await sqs_consumer.initialize()
+        logger.info("SQS consumer initialized")
+    except Exception as e:
+        logger.warning(f"Could not initialize SQS consumer: {e}")
     
     logger.info("Arbitrage Hero API started successfully")
     yield
@@ -52,10 +62,11 @@ def create_app() -> FastAPI:
     )
     
     # Include routers
-    app.include_router(accounts_router, prefix="/accounts", tags=["accounts"])
-    app.include_router(repricing_router, prefix="/repricing", tags=["repricing"])
-    app.include_router(feeds_router, prefix="/feeds", tags=["feeds"])
-    app.include_router(listings_router, prefix="/listings", tags=["listings"])
+    app.include_router(webhook_router, tags=["webhooks"])
+    # app.include_router(accounts_router, prefix="/accounts", tags=["accounts"])
+    # app.include_router(repricing_router, prefix="/repricing", tags=["repricing"])
+    # app.include_router(feeds_router, prefix="/feeds", tags=["feeds"])
+    # app.include_router(listings_router, prefix="/listings", tags=["listings"])
     
     @app.get("/health")
     async def health_check():

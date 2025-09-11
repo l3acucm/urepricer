@@ -43,7 +43,6 @@ services:
       - "8000:8000"
     environment:
       - DEBUG=true
-      - DATABASE_URL=postgresql://postgres:password@postgres:5432/urepricer_dev
       - REDIS_URL=redis://redis:6379/0
       - AWS_ENDPOINT_URL=http://localstack:4566
       - SQS_QUEUE_URL_ANY_OFFER=http://localstack:4566/000000000000/amazon-any-offer-changed-queue
@@ -52,8 +51,6 @@ services:
       - .:/app
       - /app/.venv  # Exclude poetry venv from being overwritten
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
       localstack:
@@ -72,15 +69,13 @@ services:
       dockerfile: Dockerfile.dev
     container_name: urepricer-celery-dev
     environment:
-      - DATABASE_URL=postgresql://postgres:password@postgres:5432/urepricer_dev
+      - DEBUG=true
       - REDIS_URL=redis://redis:6379/0
       - AWS_ENDPOINT_URL=http://localstack:4566
     volumes:
       - .:/app
       - /app/.venv
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
       localstack:
@@ -88,7 +83,6 @@ services:
     command: ["celery", "-A", "src.celery_app", "worker", "--loglevel=info"]
 
 volumes:
-  postgres_data_dev:
   redis_data_dev:
   localstack_data_dev:
 

@@ -12,7 +12,6 @@ from loguru import logger
 from ..services.repricing_orchestrator import RepricingOrchestrator
 from ..services.redis_service import RedisService
 
-
 # Global services (will be initialized on startup)
 redis_service = None
 orchestrator = None
@@ -22,7 +21,7 @@ orchestrator = None
 async def lifespan(app: FastAPI):
     """Handle application startup and shutdown."""
     global redis_service, orchestrator
-    
+
     # Startup
     redis_service = RedisService()
     orchestrator = RepricingOrchestrator(
@@ -31,9 +30,9 @@ async def lifespan(app: FastAPI):
         batch_size=50
     )
     logger.info("FastAPI application started with repricing services")
-    
+
     yield
-    
+
     # Shutdown
     if orchestrator:
         await orchestrator.shutdown()
@@ -75,9 +74,9 @@ async def root():
 async def health_check(orchestrator: RepricingOrchestrator = Depends(get_orchestrator)):
     """Health check endpoint."""
     health_status = await orchestrator.health_check()
-    
+
     status_code = 200 if health_status["overall_status"] == "healthy" else 503
-    
+
     return JSONResponse(
         status_code=status_code,
         content=health_status
@@ -99,9 +98,9 @@ async def reset_stats(orchestrator: RepricingOrchestrator = Depends(get_orchestr
 
 @app.post("/walmart/webhook")
 async def process_walmart_webhook(
-    webhook_data: Dict[str, Any],
-    background_tasks: BackgroundTasks,
-    orchestrator: RepricingOrchestrator = Depends(get_orchestrator)
+        webhook_data: Dict[str, Any],
+        background_tasks: BackgroundTasks,
+        orchestrator: RepricingOrchestrator = Depends(get_orchestrator)
 ):
     """
     Process Walmart buy box changed webhook.
@@ -110,31 +109,31 @@ async def process_walmart_webhook(
     through the complete repricing pipeline asynchronously for high throughput.
     """
     start_time = datetime.now(UTC)
-    
+
     try:
         # Validate basic webhook structure
         if not webhook_data.get("itemId"):
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail="Missing required field: itemId"
             )
-        
+
         if not webhook_data.get("sellerId"):
             raise HTTPException(
                 status_code=400,
                 detail="Missing required field: sellerId"
             )
-        
+
         # Add processing metadata
         webhook_data["webhook_received_at"] = start_time.isoformat()
-        
+
         # Process webhook in background for immediate response
         background_tasks.add_task(
             _process_walmart_webhook_async,
             webhook_data,
             orchestrator
         )
-        
+
         # Return immediate response
         response = {
             "status": "accepted",
@@ -143,7 +142,7 @@ async def process_walmart_webhook(
             "seller_id": webhook_data["sellerId"],
             "received_at": start_time.isoformat()
         }
-        
+
         logger.info(
             f"Walmart webhook accepted for item {webhook_data['itemId']}",
             extra={
@@ -152,9 +151,9 @@ async def process_walmart_webhook(
                 "event_type": webhook_data.get("eventType", "unknown")
             }
         )
-        
+
         return response
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -167,9 +166,9 @@ async def process_walmart_webhook(
 
 @app.post("/walmart/webhook/batch")
 async def process_walmart_webhook_batch(
-    webhooks: List[Dict[str, Any]],
-    background_tasks: BackgroundTasks,
-    orchestrator: RepricingOrchestrator = Depends(get_orchestrator)
+        webhooks: List[Dict[str, Any]],
+        background_tasks: BackgroundTasks,
+        orchestrator: RepricingOrchestrator = Depends(get_orchestrator)
 ):
     """
     Process multiple Walmart webhooks in batch for higher throughput.
@@ -178,20 +177,20 @@ async def process_walmart_webhook_batch(
     which is more efficient for high-volume scenarios.
     """
     start_time = datetime.now(UTC)
-    
+
     try:
         if not webhooks:
             raise HTTPException(
                 status_code=400,
                 detail="Empty webhook batch"
             )
-        
+
         if len(webhooks) > 1000:  # Reasonable batch size limit
             raise HTTPException(
                 status_code=400,
                 detail="Batch size too large (max 1000 webhooks)"
             )
-        
+
         # Validate all webhooks in batch
         for i, webhook in enumerate(webhooks):
             if not webhook.get("itemId"):
@@ -204,18 +203,18 @@ async def process_walmart_webhook_batch(
                     status_code=400,
                     detail=f"Webhook {i}: Missing required field sellerId"
                 )
-            
+
             # Add batch metadata
             webhook["batch_received_at"] = start_time.isoformat()
             webhook["batch_index"] = i
-        
+
         # Process batch in background
         background_tasks.add_task(
             _process_walmart_webhook_batch_async,
             webhooks,
             orchestrator
         )
-        
+
         # Return immediate response
         response = {
             "status": "accepted",
@@ -223,7 +222,7 @@ async def process_walmart_webhook_batch(
             "batch_size": len(webhooks),
             "received_at": start_time.isoformat()
         }
-        
+
         logger.info(
             f"Walmart webhook batch accepted: {len(webhooks)} webhooks",
             extra={
@@ -231,9 +230,9 @@ async def process_walmart_webhook_batch(
                 "first_item_id": webhooks[0]["itemId"] if webhooks else "none"
             }
         )
-        
+
         return response
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -244,73 +243,14 @@ async def process_walmart_webhook_batch(
         )
 
 
-@app.post("/amazon/test-sqs")
-async def process_test_amazon_sqs(
-    sqs_message: Dict[str, Any],
-    background_tasks: BackgroundTasks,
-    orchestrator: RepricingOrchestrator = Depends(get_orchestrator)
-):
-    """
-    Test endpoint for Amazon SQS message processing.
-    
-    This is primarily for testing the Amazon SQS processing logic.
-    In production, SQS messages would be consumed by the SQS consumer service.
-    """
-    start_time = datetime.now(UTC)
-    
-    try:
-        # Validate basic SQS message structure
-        if not sqs_message.get("Body"):
-            raise HTTPException(
-                status_code=400,
-                detail="Missing required field: Body"
-            )
-        
-        # Add processing metadata
-        sqs_message["test_received_at"] = start_time.isoformat()
-        
-        # Process SQS message in background
-        background_tasks.add_task(
-            _process_amazon_sqs_async,
-            sqs_message,
-            orchestrator
-        )
-        
-        # Return immediate response
-        response = {
-            "status": "accepted",
-            "message": "Amazon SQS test message received and queued for processing",
-            "message_id": sqs_message.get("MessageId", "unknown"),
-            "received_at": start_time.isoformat()
-        }
-        
-        logger.info(
-            f"Amazon SQS test message accepted: {sqs_message.get('MessageId', 'unknown')}",
-            extra={
-                "message_id": sqs_message.get("MessageId", "unknown")
-            }
-        )
-        
-        return response
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error accepting Amazon SQS test message: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Internal server error: {str(e)}"
-        )
-
-
 async def _process_walmart_webhook_async(
-    webhook_data: Dict[str, Any],
-    orchestrator: RepricingOrchestrator
+        webhook_data: Dict[str, Any],
+        orchestrator: RepricingOrchestrator
 ):
     """Background task to process single Walmart webhook."""
     try:
         result = await orchestrator.process_walmart_webhook(webhook_data)
-        
+
         # Log the result (could also send to monitoring system)
         if result["success"]:
             logger.info(
@@ -329,7 +269,7 @@ async def _process_walmart_webhook_async(
                     "error": result.get("error")
                 }
             )
-            
+
     except Exception as e:
         logger.error(
             f"Background processing failed for Walmart webhook: {str(e)}",
@@ -338,16 +278,16 @@ async def _process_walmart_webhook_async(
 
 
 async def _process_walmart_webhook_batch_async(
-    webhooks: List[Dict[str, Any]],
-    orchestrator: RepricingOrchestrator
+        webhooks: List[Dict[str, Any]],
+        orchestrator: RepricingOrchestrator
 ):
     """Background task to process batch of Walmart webhooks."""
     try:
         results = await orchestrator.process_message_batch(webhooks, "walmart")
-        
+
         # Log batch results
         successful = sum(1 for r in results if r.get("success", False))
-        
+
         logger.info(
             f"Walmart webhook batch processed: {successful}/{len(webhooks)} successful",
             extra={
@@ -356,45 +296,11 @@ async def _process_walmart_webhook_batch_async(
                 "failed_count": len(webhooks) - successful
             }
         )
-        
+
     except Exception as e:
         logger.error(
             f"Background batch processing failed for Walmart webhooks: {str(e)}",
             extra={"batch_size": len(webhooks)}
-        )
-
-
-async def _process_amazon_sqs_async(
-    sqs_message: Dict[str, Any],
-    orchestrator: RepricingOrchestrator
-):
-    """Background task to process single Amazon SQS message."""
-    try:
-        result = await orchestrator.process_amazon_message(sqs_message)
-        
-        # Log the result
-        if result["success"]:
-            logger.info(
-                f"Amazon SQS message processed successfully",
-                extra={
-                    "message_id": sqs_message.get("MessageId", "unknown"),
-                    "price_changed": result.get("price_changed", False),
-                    "processing_time_ms": result.get("processing_time_ms")
-                }
-            )
-        else:
-            logger.error(
-                f"Amazon SQS message processing failed: {result.get('error')}",
-                extra={
-                    "message_id": sqs_message.get("MessageId", "unknown"),
-                    "error": result.get("error")
-                }
-            )
-            
-    except Exception as e:
-        logger.error(
-            f"Background processing failed for Amazon SQS message: {str(e)}",
-            extra={"message_id": sqs_message.get("MessageId", "unknown")}
         )
 
 
@@ -410,7 +316,7 @@ async def global_exception_handler(request: Request, exc: Exception):
             "query_params": str(request.query_params)
         }
     )
-    
+
     return JSONResponse(
         status_code=500,
         content={
@@ -423,7 +329,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     # Run with high concurrency settings for production
     uvicorn.run(
         "webhook_endpoints:app",

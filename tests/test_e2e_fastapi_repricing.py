@@ -184,47 +184,7 @@ class TestFastAPIWebhookRepricing:
         
         wait_for_processing()
     
-    def test_amazon_sqs_test_endpoint(
-        self,
-        fastapi_client,
-        sample_amazon_sqs_message,
-        setup_test_products,
-        wait_for_processing
-    ):
-        """
-        Test the Amazon SQS test endpoint for testing SQS processing via FastAPI.
-        """
-        # Setup test product
-        test_product = {
-            **SAMPLE_WALMART_PRODUCT,
-            "asin": "B07XQXZXYX",  # Amazon ASIN format
-            "seller_id": "A1SELLER123"
-        }
-        setup_test_products([test_product])
-        
-        # Mock SQS processing
-        with patch('src.api.webhook_endpoints.orchestrator') as mock_orchestrator:
-            mock_orchestrator.process_amazon_message = AsyncMock(return_value={
-                "success": True,
-                "price_changed": True,
-                "old_price": 28.99,
-                "new_price": 27.98,
-                "processing_time_ms": 110.3
-            })
-            
-            # Send test SQS message to FastAPI endpoint
-            response = fastapi_client.post(
-                "/amazon/test-sqs",
-                json=sample_amazon_sqs_message
-            )
-            
-            # Verify acceptance
-            assert response.status_code == 200
-            response_data = response.json()
-            assert response_data["status"] == "accepted"
-            assert response_data["message_id"] == sample_amazon_sqs_message["MessageId"]
-        
-        wait_for_processing()
+    # Amazon test endpoint removed - now using dedicated SQS consumer service
     
     def test_health_check_endpoint(
         self,

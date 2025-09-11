@@ -1,0 +1,97 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: urepricer-redis-dev
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data_dev:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  localstack:
+    image: localstack/localstack:3.0
+    container_name: urepricer-localstack-dev
+    ports:
+      - "4566:4566"    # LocalStack Gateway
+      - "4510-4559:4510-4559"  # External services port range
+    environment:
+      - SERVICES=sqs,sns,s3
+      - DEBUG=1
+      - DATA_DIR=/tmp/localstack/data
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - AWS_DEFAULT_REGION=us-east-1
+    volumes:
+      - localstack_data_dev:/tmp/localstack
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./scripts/localstack-init.sh:/etc/localstack/init/ready.d/localstack-init.sh
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: urepricer-app-dev
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=true
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/urepricer_dev
+      - REDIS_URL=redis://redis:6379/0
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - SQS_QUEUE_URL_ANY_OFFER=http://localstack:4566/000000000000/amazon-any-offer-changed-queue
+      - SQS_QUEUE_URL_FEED_PROCESSING=http://localstack:4566/000000000000/feed-processing-queue
+    volumes:
+      - .:/app
+      - /app/.venv  # Exclude poetry venv from being overwritten
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    command: ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Celery Worker (Development)
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: urepricer-celery-dev
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/urepricer_dev
+      - REDIS_URL=redis://redis:6379/0
+      - AWS_ENDPOINT_URL=http://localstack:4566
+    volumes:
+      - .:/app
+      - /app/.venv
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    command: ["celery", "-A", "src.celery_app", "worker", "--loglevel=info"]
+
+volumes:
+  postgres_data_dev:
+  redis_data_dev:
+  localstack_data_dev:
+
+networks:
+  default:
+    name: urepricer-dev-network

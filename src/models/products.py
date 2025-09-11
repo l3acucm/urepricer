@@ -8,7 +8,6 @@ from datetime import datetime, UTC
 
 from redis_om import JsonModel, EmbeddedJsonModel, Field
 from pydantic import field_validator
-import os
 
 from src.core.config import get_settings
 

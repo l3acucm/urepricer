@@ -67,11 +67,12 @@ class TestPriceBoundsValidation:
     
     def test_chase_buybox_price_too_high_raises_exception(self):
         """Test ChaseBuyBox raises exception when calculated price is above max."""
-        # Setup: competitor price is 50, beat_by is -0.50, so calculated = 49.50
+        # Setup: We're losing at 55.0, competitor price is 50, beat_by is -0.50, so calculated = 49.50
         # Max price is 45, so this should fail
         product = self.create_mock_product(
             min_price=10.0,
             max_price=45.0,
+            listed_price=55.0,      # We're losing, so need to compete
             competitor_price=50.0
         )
         
@@ -142,6 +143,7 @@ class TestPriceBoundsValidation:
         product = self.create_mock_product(
             min_price=None,  # No bounds set
             max_price=None,
+            listed_price=105.0,     # We're losing, so need to compete
             competitor_price=100.0  # Any price should be accepted
         )
         
@@ -159,7 +161,8 @@ class TestPriceBoundsValidation:
         product = self.create_mock_product(
             min_price=10.0,
             max_price=50.0,
-            competitor_price=30.0  # Results in 29.50 after beat_by
+            listed_price=35.0,      # We're losing, so need to compete
+            competitor_price=30.0   # Results in 29.50 after beat_by
         )
         
         # Mock NewPriceProcessor

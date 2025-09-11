@@ -220,9 +220,10 @@ def test_chase_buybox_bounds_validation():
         __builtins__.__import__ = mock_import
     
     try:
-        # Test valid price
+        # Test valid price where we need to be competitive (our price is higher)
         product = create_mock_product(
-            competitor_price=30.0,
+            listed_price=35.0,      # Our current price (losing)
+            competitor_price=30.0,  # Competitor price
             strategy_beat_by=0.01,
             min_price=20.0,
             max_price=40.0,
@@ -233,10 +234,11 @@ def test_chase_buybox_bounds_validation():
         strategy.apply()
         expected_price = 30.01  # 30.0 + 0.01
         assert product.updated_price == expected_price, f"Expected {expected_price}, got {product.updated_price}"
-        print("✅ Valid calculated price accepted")
+        print("✅ Valid calculated price accepted when we need to be competitive")
         
-        # Test bounds violation
+        # Test bounds violation where we're losing but calculation exceeds bounds
         product = create_mock_product(
+            listed_price=50.0,      # Our current price (losing)
             competitor_price=45.0,  # 45.01 will exceed max
             strategy_beat_by=0.01,
             min_price=20.0,

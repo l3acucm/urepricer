@@ -1,112 +1,67 @@
-[tool.poetry]
+[project]
 name = "urepricer"
 version = "0.1.0"
-description = "Consolidated Arbitrage Hero repricer system with FastAPI"
-authors = ["Arbitrage Hero Team"]
+description = ""
+authors = [
+    {name = "l3acucm",email = "l3acucm@gmail.com"}
+]
 readme = "README.md"
-packages = [{include = "src"}]
+requires-python = ">=3.13,<4.0"
+dependencies = [
+    "fastapi (>=0.116.1,<0.117.0)",
+    "pydantic[email] (>=2.11.7,<3.0.0)",
+    "pydantic-settings (>=2.10.1,<3.0.0)",
+    "redis-om (>=0.3.5,<0.4.0)",
+    "redis (>=3.5.3,<6.0.0)",
+    "boto3 (>=1.40.28,<2.0.0)",
+    "structlog (>=25.4.0,<26.0.0)",
+    "locust (>=2.40.2,<3.0.0)",
+    "prettytable (>=3.16.0,<4.0.0)",
+    "pytest-asyncio (>=1.1.0,<2.0.0)",
+    "fakeredis (>=2.31.1,<3.0.0)",
+    "pytest-mock (>=3.15.0,<4.0.0)",
+    "pytest-cov (>=7.0.0,<8.0.0)"
+]
 
-[tool.poetry.dependencies]
-python = "^3.13"
-fastapi = "^0.116.1"
-uvicorn = {extras = ["standard"], version = "^0.35.0"}
-pydantic = {extras = ["email"], version = "^2.11.7"}
-pydantic-settings = "^2.10.1"
-python-multipart = "^0.0.20"
-sqlalchemy = "^2.0.43"
-alembic = "^1.16.5"
-psycopg2-binary = "^2.9.10"
-python-jose = {extras = ["cryptography"], version = "^3.5.0"}
-passlib = {extras = ["bcrypt"], version = "^1.7.4"}
-redis = ">=3.5.3,<6.0.0"
-redis-om = "^0.3.5"
-boto3 = "^1.40.28"
-requests = "^2.32.5"
-structlog = "^25.4.0"
-python-dotenv = "^1.1.1"
+[tool.poetry]
+package-mode = false
 
 [tool.poetry.group.dev.dependencies]
 fakeredis = "^2.31.1"
 pytest = "^8.4.2"
 pytest-asyncio = "^1.1.0"
-pytest-cov = "^7.0.0"
-pytest-mock = "^3.15.0"
-httpx = "^0.28.1"
-black = "^25.1.0"
-isort = "^6.0.1"
-flake8 = "^7.3.0"
-mypy = "^1.17.1"
-localstack = "^4.7.0"
-locust = "^2.40.2"
 
 [build-system]
-requires = ["poetry-core"]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v --tb=short --cov=src --cov-report=term-missing --ignore=tests/bad"
-filterwarnings = [
-    "ignore::DeprecationWarning:pydantic.*",
-    "ignore::DeprecationWarning:redis_om.*", 
-    "ignore::DeprecationWarning:importlib.*",
-    "ignore::UserWarning:pydantic.*",
-    "ignore::UserWarning:redis_om.*",
-    "ignore:Support for class-based.*config.*is deprecated:DeprecationWarning:pydantic.*",
-    "ignore:.*min_items.*is deprecated.*use.*min_length:DeprecationWarning:pydantic.*",
-    "ignore:.*max_items.*is deprecated.*use.*max_length:DeprecationWarning:pydantic.*",
-    "ignore:Using extra keyword arguments.*is deprecated:DeprecationWarning:pydantic.*"
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=src",
+    "--cov-report=term-missing:skip-covered",
+    "--cov-report=html:htmlcov"
 ]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
-    "unit: marks tests as unit tests",
-    "auth: marks tests related to authentication",
-    "strategy: marks tests related to pricing strategies", 
-    "feed: marks tests related to feed submission",
-    "listing: marks tests related to listings",
-    "basic_pricing: marks basic pricing strategy tests",
-    "lowest_price: marks lowest price strategy tests",
-    "buybox: marks buybox strategy tests",
-    "b2b: marks B2B pricing strategy tests",
-    "fba_pricing: marks FBA pricing strategy tests"
+    "e2e: marks tests as end-to-end tests",
 ]
-
-[tool.black]
-line-length = 88
-target-version = ['py313']
-include = '\.pyi?$'
-extend-exclude = '''
-/(
-  # directories
-  \.eggs
-  | \.git
-  | \.hg
-  | \.mypy_cache
-  | \.tox
-  | \.venv
-  | build
-  | dist
-)/
-'''
-
-[tool.isort]
-profile = "black"
-multi_line_output = 3
-include_trailing_comma = true
-force_grid_wrap = 0
-use_parentheses = true
-ensure_newline_before_comments = true
-line_length = 88
-
-[tool.mypy]
-python_version = "3.13"
-check_untyped_defs = true
-disallow_any_generics = true
-disallow_incomplete_defs = true
-disallow_untyped_defs = true
-no_implicit_optional = true
-warn_redundant_casts = true
-warn_unused_ignores = true
-warn_return_any = true
-strict_equality = true
+filterwarnings = [
+    "ignore::DeprecationWarning:pydantic.*",
+    "ignore::DeprecationWarning:redis_om.*",
+    "ignore:Monkey-patching ssl:UserWarning",
+    "ignore:.*deprecated.*:DeprecationWarning", 
+    "ignore:.*__fields__.*:DeprecationWarning",
+    "ignore:.*allow_reuse.*:DeprecationWarning",
+    "ignore:.*min_items.*:DeprecationWarning",
+    "ignore:.*max_items.*:DeprecationWarning",
+    "ignore:.*model_fields.*:DeprecationWarning",
+    "ignore:.*Extra keys.*:DeprecationWarning",
+    "ignore:.*class-based.*config.*:DeprecationWarning",
+]

@@ -73,22 +73,20 @@ sys.path.insert(0, src_dir)
 original_repricer_path = os.path.join(current_dir, '..', '..', 'repricer', 'repricer')
 sys.path.insert(0, original_repricer_path)
 
-# Import test data and constants
+# Import test data and constants (optional)
 try:
     from test_data import *
     from constants import *
 except ImportError:
-    # Fallback if test_data is not available
-    print("Warning: Could not import test_data from original repricer module")
+    # Silently handle missing test_data module
+    pass
 
 # Import helper functions - simplified to avoid loading heavy modules
 try:
     # Only import what we absolutely need for tests
     import redis
     from helpers.redis_cache import RedisCache
-    print("Successfully imported redis helpers")
-except ImportError as e:
-    print(f"Warning: Could not import helpers: {e}")
+except ImportError:
     # Create mock classes for testing
     class RedisCache:
         def hget(self, key, field):

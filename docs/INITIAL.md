@@ -27,6 +27,9 @@ This document contains requirements extracted from the legacy documentation file
 
 - **Strategy Rule Validation**: The system must validate strategy rules and skip repricing with appropriate error messages when rules are not set, methods are undefined, or required prices (min, max, default, competitor) are missing for the specified rule. *Source: Repricer Exception Handling.html*
 
+### Repricing Triggers
+- **Multi-Platform Notification Support**: The system must support three distinct repricing triggers with different price calculation methods, all resulting in updated prices stored in Redis: (1) SQS/webhook notifications from platforms trigger strategy-based repricing using configured strategies (ChaseBuyBox, MaximiseProfit, etc.), (2) price reset functionality (POST /pricing/reset) sets prices to default_price values without strategy calculation with price bounds validation, and (3) manual repricing capability (POST /pricing/manual) sets prices to exact provided values without strategy calculation with price bounds validation. Each trigger must store the final price in Redis and be thoroughly tested for reliability and correctness. *Source: System Requirements Analysis*
+
 ### Future Enhancements
 - **Profit Maximization Strategy**: The system should implement enhanced profit maximization including default fallback when only seller present, average pricing when both min/max present, and buybox jumping when owning buybox with higher-priced buybox-eligible sellers. *Source: Future Development.html*
 

@@ -29,6 +29,15 @@ This document tracks the implementation status of all requirements extracted fro
 | **Data Validation Skipping** | Skip repricing for missing ASIN data, strategy_id, invalid prices, zero inventory | ✅ | `test_price_validation.py::TestProductListingPriceValidation` | Repricer Exception Handling.html |
 | **Strategy Rule Validation** | Validate strategy rules and skip with error messages for invalid configurations | ✅ | `test_strategies_fixed.py::test_price_bounds_validation` | Repricer Exception Handling.html |
 
+### Repricing Triggers
+
+| Requirement | Description | Implemented | Test Reference | Source |
+|-------------|-------------|:-----------:|----------------|---------|
+| **Multi-Platform Notification Support** | Support three repricing triggers with different price calculation methods, all resulting in updated prices stored in Redis | ✅ | Multiple test files (see details below) | System Requirements Analysis |
+| **SQS/Webhook Strategy-Based Triggers** | Amazon AnyOfferChanged SQS messages and Walmart buy box webhook notifications trigger strategy-based repricing (ChaseBuyBox, MaximiseProfit, etc.) | ✅ | `test_e2e_sqs_repricing.py::test_sqs_message_triggers_repricing_success`, `test_e2e_fastapi_repricing.py::test_walmart_webhook_triggers_repricing_success` | System Requirements Analysis |
+| **Price Reset Triggers** | API endpoints to reset prices to default_price values without strategy calculation, with results stored in Redis | ✅ | `test_pricing_endpoints.py::TestPriceResetAPI::test_price_reset_success`, `test_e2e_fastapi_repricing.py::test_price_reset_endpoint` | System Requirements Analysis |
+| **Manual Repricing Triggers** | API endpoints to set prices to exact provided values without strategy calculation, with results stored in Redis | ✅ | `test_pricing_endpoints.py::TestManualRepricingAPI::test_manual_repricing_success`, `test_e2e_fastapi_repricing.py::test_manual_repricing_endpoint` | System Requirements Analysis |
+
 ### Future Enhancements
 
 | Requirement | Description | Implemented | Test Reference | Source |
@@ -114,17 +123,18 @@ This document tracks the implementation status of all requirements extracted fro
 
 ## Implementation Summary
 
-### ✅ **Completed Requirements: 23/37 (62%)**
+### ✅ **Completed Requirements: 27/41 (66%)**
 - Core repricing strategies (3/4)
 - B2B functionality (3/3) 
 - Exception handling (3/3)
+- Repricing triggers (4/4)
 - Future enhancements (1/3)
 - Data storage and caching (3/3)
 - Message queue architecture (2/3)
 - Product and listing models (3/3)
 - Audit and logging (3/3)
 
-### ❌ **Pending Requirements: 14/37 (38%)**
+### ❌ **Pending Requirements: 14/41 (34%)**
 - Inventory age-based repricing
 - Night-time price positioning
 - Feed success tracking

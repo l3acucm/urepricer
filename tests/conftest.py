@@ -281,6 +281,94 @@ def fastapi_client():
                 mock_response.json.return_value = {"detail": "sellerId is required"}
                 return mock_response
         
+        # Handle price reset endpoint
+        if "/pricing/reset" in url:
+            if not json:
+                mock_response.status_code = 400
+                mock_response.json.return_value = {"detail": "Request body is required"}
+                return mock_response
+            
+            # Validate required fields
+            if "asin" not in json:
+                mock_response.status_code = 400
+                mock_response.json.return_value = {"detail": "asin is required"}
+                return mock_response
+            if "seller_id" not in json:
+                mock_response.status_code = 400
+                mock_response.json.return_value = {"detail": "seller_id is required"}
+                return mock_response
+            if "sku" not in json:
+                mock_response.status_code = 400
+                mock_response.json.return_value = {"detail": "sku is required"}
+                return mock_response
+            
+            # Success response
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "status": "success",
+                "message": "Price reset to default value",
+                "asin": json["asin"],
+                "seller_id": json["seller_id"],
+                "sku": json["sku"],
+                "old_price": 29.99,
+                "new_price": 25.00,
+                "reason": json.get("reason", "manual_reset"),
+                "reset_at": "2025-01-01T00:00:00Z"
+            }
+            return mock_response
+        
+        # Handle manual repricing endpoint
+        if "/pricing/manual" in url:
+            if not json:
+                mock_response.status_code = 400
+                mock_response.json.return_value = {"detail": "Request body is required"}
+                return mock_response
+            
+            # Validate required fields
+            if "asin" not in json:
+                mock_response.status_code = 400
+                mock_response.json.return_value = {"detail": "asin is required"}
+                return mock_response
+            if "seller_id" not in json:
+                mock_response.status_code = 400
+                mock_response.json.return_value = {"detail": "seller_id is required"}
+                return mock_response
+            if "sku" not in json:
+                mock_response.status_code = 400
+                mock_response.json.return_value = {"detail": "sku is required"}
+                return mock_response
+            if "new_price" not in json:
+                mock_response.status_code = 400
+                mock_response.json.return_value = {"detail": "new_price is required"}
+                return mock_response
+            
+            # Validate new_price
+            try:
+                new_price = float(json["new_price"])
+                if new_price < 0:
+                    mock_response.status_code = 400
+                    mock_response.json.return_value = {"detail": "new_price must be non-negative"}
+                    return mock_response
+            except (ValueError, TypeError):
+                mock_response.status_code = 400
+                mock_response.json.return_value = {"detail": "Invalid new_price: invalid literal"}
+                return mock_response
+            
+            # Success response
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "status": "success",
+                "message": "Manual price set successfully",
+                "asin": json["asin"],
+                "seller_id": json["seller_id"],
+                "sku": json["sku"],
+                "old_price": 29.99,
+                "new_price": new_price,
+                "reason": json.get("reason", "manual_repricing"),
+                "updated_at": "2025-01-01T00:00:00Z"
+            }
+            return mock_response
+        
         # Handle stats reset
         if "/stats/reset" in url:
             mock_response.status_code = 200

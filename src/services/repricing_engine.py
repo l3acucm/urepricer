@@ -161,6 +161,8 @@ class RepricingEngine:
                         "seller_id": decision.seller_id,
                         "should_reprice": decision.should_reprice,
                         "reason": decision.reason,
+                        "competitor_id": offer_data.buybox_winner,
+                        "competitor_price": offer_data.competitor_price,
                         "processing_time_ms": processing_time
                     }
                 )
@@ -178,20 +180,7 @@ class RepricingEngine:
     async def _make_amazon_decision(self, offer_data: ProcessedOfferData) -> Optional[RepricingDecision]:
         """Make repricing decision for Amazon offer data."""
         asin = offer_data.product_id
-        
-        # For Amazon, we need to find all products with this ASIN
-        # This is a simplified version - in practice you might want to get all sellers for an ASIN
-        
-        # For now, assume we're processing for a specific seller
-        # In real implementation, you'd iterate through all sellers for this ASIN
-        seller_id = offer_data.seller_id  # This comes from the notification
-        
-        # Get product data from Redis
-        # Note: We need to find the SKU somehow - this could be from a mapping table
-        # For now, we'll try to get all product data for this seller and ASIN
-        
-        # This is where you'd implement logic to find the correct SKU
-        # For demonstration, let's assume we have a method to find it
+        seller_id = offer_data.seller_id
         sku = await self._find_sku_for_asin_seller(asin, seller_id)
         if not sku:
             return None
@@ -232,9 +221,24 @@ class RepricingEngine:
                 sku=sku,
                 seller_id=seller_id,
                 strategy_id="unknown",
-                competitor_data=offer_data
+                competitor_data=offer_data,
+                current_price=-1,
+                stock_quantity=-1
             )
-        
+
+        # Prevent self competition - check if we are competing against ourselves
+        if self._is_self_competing(offer_data, seller_id):
+            return RepricingDecision(
+                should_reprice=False,
+                reason=f"Self-competition detected - we are the buybox winner or only competitor",
+                asin=asin,
+                sku=sku,
+                seller_id=seller_id,
+                strategy_id=product_data.get('strategy_id', 'unknown'),
+                competitor_data=offer_data,
+                current_price=product_data.get('listed_price'),
+                stock_quantity=-1
+            )
         # Check stock - only reprice if we have stock
         stock_quantity = await self.redis.get_stock_quantity(asin, seller_id, sku)
         if stock_quantity is not None and stock_quantity <= 0:
@@ -308,11 +312,15 @@ class RepricingEngine:
                 return None
             
             # Create product and strategy objects
+            # Filter out conflicting keys from product_data
+            filtered_product_data = {k: v for k, v in product_data.items() 
+                                   if k not in ['asin', 'sku', 'seller_id']}
+            
             product = Product(
                 asin=decision.asin,
                 sku=decision.sku,
                 seller_id=decision.seller_id,
-                **product_data
+                **filtered_product_data
             )
             
             product.strategy = Strategy(**strategy_data)
@@ -320,15 +328,9 @@ class RepricingEngine:
             
             # Set competitor information using offer data
             await self._set_competitor_info(product, decision.competitor_data)
-            
-            # Apply pricing strategy
-            strategy_name = self._determine_strategy_name(product)
-            strategy_class = self.strategies.get(strategy_name)
-            
-            if not strategy_class:
-                self.logger.error(f"Unknown strategy: {strategy_name}")
-                return None
-            
+
+            strategy_class = ChaseBuyBox
+
             # Apply the strategy
             try:
                 strategy_instance = strategy_class(product)
@@ -342,13 +344,13 @@ class RepricingEngine:
             except PriceBoundsError as e:
                 processing_time = (time.time() - start_time) * 1000
                 self.logger.warning(
-                    f"Price bounds violation: {e.message}",
+                    f"Price bounds violation: {e.min_price} <= {e.calculated_price} <= {e.max_price}",
                     extra={
                         "asin": decision.asin,
                         "calculated_price": e.calculated_price,
                         "min_price": e.min_price,
                         "max_price": e.max_price,
-                        "strategy": strategy_name,
+                        "strategy": str(strategy_class),
                         "processing_time_ms": processing_time
                     }
                 )
@@ -363,20 +365,12 @@ class RepricingEngine:
                 old_price=old_price,
                 new_price=new_price,
                 price_changed=price_changed,
-                strategy_used=strategy_name,
+                strategy_used=str(strategy_instance),
                 strategy_id=decision.strategy_id,
                 competitor_price=product.competitor_price,
                 processing_time_ms=processing_time
             )
-            
-            # Handle B2B tier pricing if applicable
-            if product.is_b2b and product.tiers:
-                tier_prices = {}
-                for tier_key, tier in product.tiers.items():
-                    if tier.updated_price is not None:
-                        tier_prices[tier_key] = float(tier.updated_price)
-                result.tier_prices = tier_prices
-            
+
             self.logger.info(
                 f"Price calculated: {old_price} → {new_price}",
                 extra={
@@ -385,7 +379,7 @@ class RepricingEngine:
                     "old_price": old_price,
                     "new_price": new_price,
                     "price_changed": price_changed,
-                    "strategy": strategy_name,
+                    "strategy": str(strategy_instance),
                     "processing_time_ms": processing_time
                 }
             )
@@ -433,11 +427,7 @@ class RepricingEngine:
             "competitor_price": calculated_price.competitor_price,
             "processing_time_ms": calculated_price.processing_time_ms
         }
-        
-        # Add B2B tier prices if applicable
-        if calculated_price.tier_prices:
-            price_data["tier_prices"] = calculated_price.tier_prices
-        
+
         # Save to Redis with 2-hour TTL
         success = await self.redis.save_calculated_price(
             calculated_price.asin,
@@ -457,6 +447,52 @@ class RepricingEngine:
             )
         
         return success
+    
+    def _is_self_competing(self, offer_data: ProcessedOfferData, our_seller_id: str) -> bool:
+        """
+        Check if we are competing against ourselves.
+        
+        Args:
+            offer_data: Processed offer data containing competitor information
+            our_seller_id: Our seller ID to check against
+            
+        Returns:
+            True if we are self-competing, False otherwise
+        """
+        # Check if we are the buybox winner
+        if offer_data.buybox_winner and offer_data.buybox_winner == our_seller_id:
+            self.logger.debug(f"Self-competition: We are the buybox winner ({our_seller_id})")
+            return True
+        
+        # Check if we appear in the offers list as a competitor
+        if offer_data.raw_offers:
+            our_offers_count = 0
+            total_valid_offers = 0
+            
+            for offer in offer_data.raw_offers:
+                # Extract seller ID from various possible formats
+                offer_seller_id = None
+                if isinstance(offer, dict):
+                    # Try different possible field names
+                    offer_seller_id = (offer.get('sellerId') or 
+                                     offer.get('seller_id') or 
+                                     offer.get('SellerId') or
+                                     offer.get('SellerID'))
+                
+                if offer_seller_id:
+                    total_valid_offers += 1
+                    if offer_seller_id == our_seller_id:
+                        our_offers_count += 1
+            
+            # If we are the only seller in the offers, we're self-competing
+            if total_valid_offers > 0 and our_offers_count == total_valid_offers:
+                self.logger.debug(f"Self-competition: We are all {our_offers_count} offers in the list")
+                return True
+        
+        # Check if the competitor_price is from our own listing
+        # This is harder to detect definitively, so we rely on the above checks
+        
+        return False
     
     async def _set_competitor_info(self, product: Product, offer_data: ProcessedOfferData):
         """Set competitor information on product using offer data."""
@@ -481,42 +517,80 @@ class RepricingEngine:
             except Exception as e:
                 self.logger.warning(f"Competitor analysis failed: {str(e)}")
                 # Fall back to basic competitor price from offer_data
-    
-    def _determine_strategy_name(self, product: Product) -> str:
-        """Determine which strategy to apply based on market conditions."""
-        if product.no_of_offers <= 1:
-            return 'ONLY_SELLER'
-        elif not product.is_b2b and product.is_seller_buybox_winner:
-            return 'MAXIMISE_PROFIT'
-        else:
-            return 'WIN_BUYBOX'
-    
+
     async def _find_sku_for_asin_seller(self, asin: str, seller_id: str) -> Optional[str]:
         """
-        Find SKU for a given ASIN and seller.
+        Find SKU for a given ASIN and seller by scanning Redis hash fields.
         
-        This is a simplified implementation. In reality, you might:
-        1. Have a separate mapping table
-        2. Scan Redis keys 
-        3. Use a database query
-        
-        For now, this is a placeholder that would need to be implemented
-        based on your specific data structure.
+        Args:
+            asin: Amazon ASIN
+            seller_id: Seller identifier
+            
+        Returns:
+            SKU if found, None otherwise
         """
-        # TODO: Implement actual SKU lookup logic
-        # This could involve scanning Redis keys or maintaining a separate mapping
-        
-        # Placeholder implementation
-        return f"SKU_{asin}_{seller_id[:8]}"
+        try:
+            # Get Redis client
+            redis_client = await self.redis.get_connection()
+            
+            # Check if ASIN key exists
+            redis_key = f"ASIN_{asin}"
+            if not await redis_client.exists(redis_key):
+                self.logger.debug(f"ASIN key does not exist: {redis_key}")
+                return None
+            
+            # Get all field names in the hash - format is {seller_id}:{sku}
+            field_names = await redis_client.hkeys(redis_key)
+            
+            # Find the field that starts with our seller_id
+            for field_name in field_names:
+                if field_name.startswith(f"{seller_id}:"):
+                    # Extract SKU from field name format: seller_id:sku
+                    sku = field_name.split(":", 1)[1]
+                    self.logger.debug(f"Found SKU {sku} for ASIN {asin}, seller {seller_id}")
+                    return sku
+            
+            self.logger.debug(f"No SKU found for ASIN {asin}, seller {seller_id}")
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"Error finding SKU for ASIN {asin}, seller {seller_id}: {str(e)}")
+            return None
     
     async def _find_product_for_walmart_item(self, item_id: str, seller_id: str) -> Tuple[Optional[str], Optional[str]]:
         """
         Find corresponding ASIN and SKU for a Walmart item.
         
-        This depends on how you map Walmart items to your internal product catalog.
+        For Walmart webhooks, item_id is the ASIN and we need to find the corresponding SKU
+        for the specific seller from Redis.
         """
-        # TODO: Implement Walmart item to ASIN/SKU mapping
-        # This might involve a separate mapping table or API
-        
-        # Placeholder implementation
-        return f"ASIN_{item_id}", f"SKU_{item_id}_{seller_id[:8]}"
+        try:
+            redis_client = await self.redis.get_connection()
+            
+            # Use item_id as the ASIN directly
+            asin = item_id
+            redis_key = f"ASIN_{asin}"
+            
+            # Get all fields in the hash to find the one for this seller
+            all_fields = await redis_client.hkeys(redis_key)
+            
+            # Look for a field that starts with the seller_id
+            for field in all_fields:
+                if field.startswith(f"{seller_id}:"):
+                    # Extract SKU from the field format: "seller_id:sku"
+                    sku = field.split(":", 1)[1]
+                    self.logger.debug(
+                        f"Found product mapping for Walmart item {item_id}",
+                        extra={"asin": asin, "seller_id": seller_id, "sku": sku}
+                    )
+                    return asin, sku
+            
+            self.logger.warning(
+                f"No product found for Walmart item {item_id} and seller {seller_id}",
+                extra={"item_id": item_id, "seller_id": seller_id, "available_fields": all_fields}
+            )
+            return None, None
+            
+        except Exception as e:
+            self.logger.error(f"Failed to find product for Walmart item {item_id}: {str(e)}")
+            return None, None

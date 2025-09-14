@@ -7,7 +7,6 @@ from typing import Annotated
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
-from src.core.database import get_db
 from src.core.config import get_settings, Settings
 from src.services.accounts_service import AccountsService
 from src.services.repricing_service import RepricingService

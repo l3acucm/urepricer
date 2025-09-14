@@ -1,13 +1,12 @@
 """Redis service for product and strategy data management."""
 
 import json
-import asyncio
 from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime, timedelta, UTC
 import redis.asyncio as redis
 from loguru import logger
 
-from ..core.config import get_settings
+from core.config import get_settings
 
 
 class RedisService:

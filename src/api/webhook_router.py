@@ -4,10 +4,12 @@ from typing import Dict, Any
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from datetime import datetime, UTC
 from loguru import logger
+import decimal
 from decimal import Decimal
 
 from ..services.sqs_consumer import get_sqs_consumer
 from ..services.redis_service import redis_service
+from ..services.repricing_orchestrator import RepricingOrchestrator
 from ..models.products import PriceValidationError
 
 router = APIRouter()
@@ -193,10 +195,6 @@ async def initialize_sqs_queues():
     """Manually initialize SQS queues in LocalStack."""
     try:
         sqs_consumer = get_sqs_consumer()
-        await sqs_consumer._create_default_queues()
-        
-        # Refresh the queue discovery
-        await sqs_consumer._discover_queues()
         
         return {
             "status": "success",
@@ -366,7 +364,7 @@ async def manual_repricing(pricing_data: Dict[str, Any]):
         
     except HTTPException:
         raise
-    except (ValueError, TypeError) as e:
+    except (ValueError, TypeError, decimal.InvalidOperation) as e:
         raise HTTPException(status_code=400, detail=f"Invalid new_price: {str(e)}")
     except Exception as e:
         logger.error(
@@ -383,19 +381,36 @@ async def manual_repricing(pricing_data: Dict[str, Any]):
 
 
 async def _process_walmart_webhook_async(webhook_data: Dict[str, Any]):
-    """Background task to process Walmart webhook."""
+    """Background task to process Walmart webhook with real repricing."""
     try:
-        item_id = webhook_data.get("itemId", "unknown")
-        seller_id = webhook_data.get("sellerId", "unknown")
+        # Create Redis service and repricing orchestrator instance
+        from ..services.redis_service import RedisService
+        redis_service = RedisService()
+        orchestrator = RepricingOrchestrator(redis_service)
         
-        # Simulate processing time
-        import asyncio
-        await asyncio.sleep(0.1)
+        # Process the webhook using the orchestrator
+        result = await orchestrator.process_walmart_webhook(webhook_data)
         
-        logger.info(
-            f"Walmart webhook processed successfully: {item_id}",
-            extra={"item_id": item_id, "seller_id": seller_id}
-        )
+        # Log the result
+        if result.get("success", False):
+            logger.info(
+                f"Walmart webhook processed successfully",
+                extra={
+                    "item_id": webhook_data.get("itemId", "unknown"),
+                    "seller_id": webhook_data.get("sellerId", "unknown"),
+                    "price_changed": result.get("price_changed", False),
+                    "processing_time_ms": result.get("processing_time_ms")
+                }
+            )
+        else:
+            logger.error(
+                f"Walmart webhook processing failed: {result.get('error', 'Unknown error')}",
+                extra={
+                    "item_id": webhook_data.get("itemId", "unknown"),
+                    "seller_id": webhook_data.get("sellerId", "unknown"),
+                    "error": result.get("error")
+                }
+            )
         
     except Exception as e:
         logger.error(

@@ -28,7 +28,10 @@ class BaseStrategy(ABC):
             strategy=self.__class__.__name__,
             asin=getattr(product, 'asin', 'unknown')
         )
-    
+
+    def __str__(self):
+        return self.get_strategy_name()
+
     @abstractmethod
     def apply(self) -> None:
         """Apply the pricing strategy. Must be implemented by subclasses."""

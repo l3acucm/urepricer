@@ -1,147 +1,158 @@
-# 🚀 URepricer Development Quickstart Guide
+# 🚀 URepricer Quick Start Guide - Local Development
 
-A comprehensive guide to get the Arbitrage Hero repricing system up and running locally for development and testing.
+Get started with URepricer's local development environment in minutes!
 
 ## 📋 Prerequisites
 
-Before you begin, ensure you have the following installed:
+- **Python 3.11+** with Poetry installed
+- **Redis server** running locally on port 6379
+- **LocalStack** for AWS services emulation  
+- **Virtual environment** activated
 
-- **Python 3.13+** - [Download Python](https://www.python.org/downloads/)
-- **Poetry** - Package management: `curl -sSL https://install.python-poetry.org | python3 -`
-- **Docker & Docker Compose** - [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-- **Git** - Version control
+## 🛠 Setup Instructions
 
-## 🛠️ Quick Setup (5 minutes)
-
-### 1. Clone and Setup Project
+### 1. Install Dependencies
 
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd urepricer
-
-# Install dependencies with Poetry
+# Install Python dependencies
 poetry install
 
-# Activate the virtual environment
+# Activate virtual environment
 poetry shell
+
+# Verify awslocal is available
+awslocal --version
 ```
 
-### 2. Environment Configuration
+### 2. Start Required Services
+
+#### Start Redis Server
+```bash
+# macOS with Homebrew
+brew services start redis
+
+# Ubuntu/Debian
+sudo systemctl start redis-server
+
+# Or run Redis in Docker
+docker run -d --name redis -p 6379:6379 redis:7-alpine
+```
+
+#### Start LocalStack
+```bash
+# Install LocalStack
+pip install localstack
+
+# Start LocalStack in background
+localstack start -d
+
+# Verify LocalStack is running
+curl http://localhost:4566/health
+```
+
+### 3. Configure Environment
+
+Create your local environment file:
+```bash
+cp .env.development.sample .env.local
+```
+
+Edit `.env.local` with local settings:
+```bash
+# Redis Configuration
+REDIS_HOST=localhost
+REDIS_PORT=6379
+
+# LocalStack Configuration  
+AWS_ENDPOINT_URL=http://localhost:4566
+AWS_ACCESS_KEY_ID=test
+AWS_SECRET_ACCESS_KEY=test
+AWS_DEFAULT_REGION=us-east-1
+
+# Application Configuration
+DEBUG=true
+LOG_LEVEL=INFO
+```
+
+### 4. Initialize Services
+
+#### Create SQS Queues
+```bash
+# Create required SQS queues
+awslocal sqs create-queue --queue-name amazon-any-offer-changed-queue
+awslocal sqs create-queue --queue-name feed-processing-queue
+awslocal sqs create-queue --queue-name processed-data-queue
+
+# Verify queues exist
+awslocal sqs list-queues
+```
+
+## 🎯 Run the Application
+
+### Start Core Services
+
+#### 1. Start FastAPI Application
+```bash
+# Terminal 1: Start the main API server
+uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+#### 2. Start SQS Consumer  
+```bash
+# Terminal 2: Start the SQS message consumer
+python3 -m src.services.sqs_consumer
+```
+
+**Note**: The SQS consumer now runs as a separate standalone process instead of being embedded in the FastAPI application. This is a better practice for scalability and debugging.
+
+### Verify Services are Running
 
 ```bash
-# Copy the development environment template
-cp .env.development.sample .env
-
-# Edit .env with your specific values (optional for local development)
-# Most default values work out of the box for local development
-```
-
-### 3. Start Infrastructure with Docker Compose
-
-```bash
-# Start all required services (PostgreSQL, Redis, LocalStack)
-docker-compose -f docker-compose.development.yml up -d
-
-# Verify services are running
-docker-compose -f docker-compose.development.yml ps
-```
-
-### 4. Populate Test Data
-
-```bash
-# Run the test data population script
-python scripts/populate_test_data.py
-```
-
-**Expected Output:**
-```
-🚀 Starting test data population...
-✅ Connected to Redis
-🧹 Clearing existing test data...
-👥 Generating sellers...
-✅ Generated 1000 sellers (500 Amazon + 500 Walmart)
-📦 Generating products...
-✅ Generated 3000+ products
-💾 Saving strategy configurations...
-✅ Saved 5 strategy configurations
-💾 Saving seller account data...
-✅ Saved 1000 seller accounts
-💾 Saving product data...
-✅ Saved 3000+ product listings
-
-📊 Test Data Summary:
-  Total products: 3000+
-  Scenarios: {'competitive': 800, 'solo_seller': 750, 'buybox_winner': 700, 'out_of_bounds': 750}
-  Platforms: {'amazon': 1500+, 'walmart': 1500+}
-
-🎉 Test data population completed successfully!
-```
-
-### 5. Verify System Health
-
-```bash
-# Check that all services are healthy
+# Check API health
 curl http://localhost:8000/health
 
-# Expected response:
-# {"overall_status": "healthy", "services": {...}}
+# Check Redis connection
+redis-cli ping
+
+# Check LocalStack health
+curl http://localhost:4566/health
 ```
 
-## 🧪 Testing Your Setup
-
-### Run Unit Tests
+## 📊 Populate Test Data
 
 ```bash
-# Run all tests
-pytest
-
-# Run specific test categories
-pytest -m "unit"           # Unit tests only
-pytest -m "strategy"       # Strategy tests only
-pytest -m "integration"    # Integration tests only
-
-# Run with coverage
-pytest --cov=src --cov-report=html
+# Clear any existing data and populate fresh test data
+redis-cli FLUSHALL
+python3 -m scripts.populate_test_data
 ```
 
-### Test Price Change Notifications
+## 🧪 Test Price Change Notifications (Guaranteed Results)
 
-#### Setup SQS Integration
+### Test Walmart Webhook
+
+For a webhook that will GUARANTEE a price change and create calculated prices:
 
 ```bash
-# Initialize SQS queues (LocalStack for dev/test, AWS SQS for production)
-curl -X POST http://localhost:8000/sqs/initialize
-
-# Check SQS queue status
-curl http://localhost:8000/sqs/status
+curl -X POST http://localhost:8000/walmart/webhook \
+  -H "Content-Type: application/json" \
+  -d '{
+    "eventType": "buybox_changed",
+    "itemId": "WM123456789",
+    "sellerId": "WM12345678",
+    "timestamp": "2025-01-01T00:00:00Z",
+    "currentBuyboxPrice": 50.00,
+    "currentBuyboxWinner": "COMPETITOR123",
+    "offers": [
+      {"sellerId": "COMPETITOR123", "price": 50.00, "condition": "New"},
+      {"sellerId": "WM12345678", "price": 999.99, "condition": "New"}
+    ]
+  }'
 ```
 
-**Expected Output:**
-```json
-{
-  "status": "success",
-  "queues": {
-    "amazon-any-offer-changed-queue": {
-      "url": "http://sqs.us-east-1.localhost.localstack.cloud:4566/000000000000/amazon-any-offer-changed-queue",
-      "visible_messages": 0,
-      "in_flight_messages": 0
-    },
-    "feed-processing-queue": {...},
-    "processed-data-queue": {...}
-  }
-}
-```
-
-#### Amazon SQS Message Processing
-
-Amazon SQS messages are now processed automatically by the dedicated SQS consumer service. The consumer polls the queues continuously and processes AnyOfferChanged notifications automatically.
+### Test Amazon SQS Message
 
 ```bash
-# Check SQS queue status to see any pending messages
-curl http://localhost:8000/sqs/status
-
-# To test message processing, you can send messages directly to LocalStack SQS:
+# Send Amazon AnyOfferChanged notification
 awslocal sqs send-message \
   --queue-url http://localhost:4566/000000000000/amazon-any-offer-changed-queue \
   --message-body '{
@@ -156,241 +167,146 @@ awslocal sqs send-message \
   }'
 ```
 
-#### Walmart Webhook Test
-
-```bash
-curl -X POST http://localhost:8000/walmart/webhook \
-  -H "Content-Type: application/json" \
-  -d '{
-    "eventType": "buybox_changed",
-    "itemId": "WM123456789",
-    "sellerId": "WM12345678",
-    "timestamp": "2025-01-01T00:00:00Z"
-  }'
-```
-
 ### Check Calculated Prices in Redis
+
+After running the webhook and SQS examples above, you can verify the repricing results in Redis:
 
 ```bash
 # Connect to Redis and check calculated prices
 redis-cli -h localhost -p 6379
 
-# In Redis CLI:
+# In Redis CLI - check for any calculated prices
 KEYS CALCULATED_PRICES:*
-HGETALL CALCULATED_PRICES:A1234567890123
+
+# View specific seller's calculated prices (examples from test data)
+HGETALL CALCULATED_PRICES:A1234567890123  # Amazon seller
+HGETALL CALCULATED_PRICES:WM12345678      # Walmart seller
+
+# Check product data structure
+HGETALL ASIN_B01234567890  # Amazon product
+HGETALL ASIN_WM123456789   # Walmart product
+
+# View strategy configurations
+HGETALL strategy.1  # WIN_BUYBOX strategy (Amazon)
+HGETALL strategy.3  # ONLY_SELLER strategy (Walmart)
 ```
 
-## 🔄 Price Reset and Resume Testing
+**Expected Results After Running Examples:**
 
-### Test Price Reset
+When the webhook/SQS processing is successful, you should see calculated prices with actual price changes:
 
 ```bash
-# Reset pricing for a specific seller
-curl -X POST http://localhost:8000/pricing/reset \
-  -H "Content-Type: application/json" \
-  -d '{
-    "seller_id": "A1234567890123",
-    "marketplace": "US",
-    "reason": "maintenance"
-  }'
+# Calculated prices keys
+127.0.0.1:6379> KEYS CALCULATED_PRICES:*
+1) "CALCULATED_PRICES:A1234567890123"
+2) "CALCULATED_PRICES:WM12345678"
+
+# Amazon calculated price (example - actual values will vary based on random test data)
+127.0.0.1:6379> HGETALL CALCULATED_PRICES:A1234567890123
+1) "A12-QUICKSTART01"
+2) "{\"new_price\": 117.38, \"old_price\": 117.79, \"strategy_used\": \"ONLY_SELLER\", \"strategy_id\": \"1\", \"competitor_price\": 114.91, \"asin\": \"B01234567890\", \"seller_id\": \"A1234567890123\", \"sku\": \"A12-QUICKSTART01\", \"saved_at\": \"2025-09-13T17:02:52.235809+00:00\"}"
+
+# Walmart calculated price (competitive response - beat competitor by $0.05)
+127.0.0.1:6379> HGETALL CALCULATED_PRICES:WM12345678
+1) "WM12-QUICKSTART01"
+2) "{\"new_price\": 49.95, \"old_price\": 118.94, \"strategy_used\": \"WIN_BUYBOX\", \"strategy_id\": \"3\", \"competitor_price\": 50.0, \"asin\": \"WM123456789\", \"seller_id\": \"WM12345678\", \"sku\": \"WM12-QUICKSTART01\", \"saved_at\": \"2025-09-13T17:12:23.717886+00:00\"}"
 ```
 
-### Test Price Resume
+**Key Points About Price Changes:**
+
+- **Amazon Example**: Test data generates random scenarios (competitive, out_of_bounds, etc.), and the strategy applies appropriate pricing logic
+- **Walmart Example**: The webhook provides competitor price ($50.00), triggering the `WIN_BUYBOX` strategy to calculate $49.95 (competitor - $0.05)
+- **Both examples guarantee price changes** because they trigger repricing logic in scenarios designed to create price adjustments
+
+**Why These Examples Guarantee Price Changes:**
+
+1. **Amazon SQS**: The test data generates various scenarios (competitive, out_of_bounds, solo_seller, buybox_winner) with realistic competitor prices and current prices that trigger repricing strategies
+2. **Walmart Webhook**: The webhook provides competitor price data ($50.00) that's lower than most generated prices, forcing a competitive price adjustment using the `WIN_BUYBOX` strategy to calculate $49.95 (competitor - $0.05)
+
+## 🧪 Run End-to-End Tests
+
+The provided e2e test script works with local development too:
 
 ```bash
-# Resume pricing for a seller
-curl -X POST http://localhost:8000/pricing/resume \
-  -H "Content-Type: application/json" \
-  -d '{
-    "seller_id": "A1234567890123",
-    "marketplace": "US"
-  }'
+# Run the complete end-to-end test
+./e2e.sh
 ```
 
-## 📊 Load Testing
+**Note**: The e2e.sh script will automatically:
+1. Stop and start your local services
+2. Clear and repopulate Redis data
+3. Send test messages to both platforms
+4. Validate that calculated prices are created
+5. Show detailed pass/fail results with checkboxes
 
-### Start Load Testing with Locust
+## 🔄 Development Workflow
+
+### Making Code Changes
+
+1. **API Changes**: The FastAPI server runs with `--reload`, so changes are picked up automatically
+2. **SQS Consumer Changes**: Restart the SQS consumer process manually after changes
+3. **Strategy Changes**: No restart needed, strategies are loaded dynamically
+
+### Debugging
 
 ```bash
-# Install locust (already included in dev dependencies)
-# Start Locust web interface
-locust -f scripts/locust_load_test.py --host http://localhost:8000
+# View application logs
+tail -f logs/app.log
 
-# Open browser to http://localhost:8089
-# Configure test parameters:
-# - Number of users: 50
-# - Spawn rate: 10/second
-# - Host: http://localhost:8000
+# Check SQS consumer processing
+# (Monitor Terminal 2 where SQS consumer is running)
+
+# Monitor Redis operations
+redis-cli monitor
+
+# Check LocalStack SQS queues
+awslocal sqs get-queue-attributes \
+  --queue-url http://localhost:4566/000000000000/amazon-any-offer-changed-queue \
+  --attribute-names ApproximateNumberOfMessages
 ```
 
-### CLI Load Testing
+## 🧹 Cleanup
 
 ```bash
-# Run headless load test
-locust -f scripts/locust_load_test.py MixedPlatformUser \
-  --users 100 --spawn-rate 10 --run-time 60s \
-  --host http://localhost:8000
-```
+# Stop Redis
+brew services stop redis
+# OR
+sudo systemctl stop redis-server
 
-**Expected Load Test Results:**
-```
-Name                          # reqs      # fails  |     Avg     Min     Max  | Median   req/s failures/s
-GET /health                     1200         0      |      45      12     156  |     41    20.0    0.0
-POST /amazon/sqs-webhook        3000         5      |     125      45     890  |    110    50.0    0.08
-POST /walmart/webhook           1800         2      |      98      38     567  |     89    30.0    0.03
-```
+# Stop LocalStack
+localstack stop
 
-## 📈 Performance Benchmarks
+# Clear Redis data if needed
+redis-cli FLUSHALL
 
-### Expected Volume Capacity
-
-Based on load testing, the local development environment should handle:
-
-- **Amazon Notifications**: ~200-300 messages/second
-- **Walmart Webhooks**: ~150-250 messages/second  
-- **Mixed Platform Load**: ~400-500 total messages/second
-- **Response Times**: 
-  - P50: <100ms
-  - P95: <300ms
-  - P99: <500ms
-
-### Monitoring Performance
-
-```bash
-# View processing statistics
-curl http://localhost:8000/stats
-
-# Monitor Redis memory usage
-redis-cli info memory
-
-# Monitor Docker container resources
-docker stats
-```
-
-## 🔧 Development Workflow
-
-### Making Changes
-
-1. **Code Changes**: Edit files in `src/`
-2. **Run Tests**: `pytest tests/`
-3. **Check Style**: `black src/ && isort src/ && flake8 src/`
-4. **Type Check**: `mypy src/`
-5. **Integration Test**: Test with sample notifications
-
-### Database Migrations
-
-```bash
-# Create new migration
-alembic revision --autogenerate -m "description"
-
-# Apply migrations
-alembic upgrade head
-```
-
-### Add New Dependencies
-
-```bash
-# Add production dependency
-poetry add package-name
-
-# Add development dependency  
-poetry add --group dev package-name
-```
-
-## 📂 Project Structure Overview
-
-```
-urepricer/
-├── src/
-│   ├── api/              # FastAPI endpoints
-│   ├── core/             # Configuration and utilities
-│   ├── models/           # Data models (Redis OM)
-│   ├── services/         # Business logic services
-│   ├── strategies/       # Repricing strategies
-│   └── tasks/            # Background tasks
-├── tests/                # Test suite
-├── scripts/              # Development scripts
-├── docs/                 # Documentation
-└── docker-compose.*.yml  # Docker configurations
+# Stop application processes (Ctrl+C in respective terminals)
 ```
 
 ## 🚨 Troubleshooting
 
-### Common Issues
+If no `CALCULATED_PRICES:*` keys exist after running the examples:
 
-#### "Redis connection failed"
-```bash
-# Check Redis is running
-docker-compose -f docker-compose.development.yml ps redis
+1. **Check services are running**: 
+   - Redis: `redis-cli ping`
+   - LocalStack: `curl http://localhost:4566/health` 
+   - FastAPI: `curl http://localhost:8000/health`
 
-# Restart Redis if needed
-docker-compose -f docker-compose.development.yml restart redis
-```
+2. **Verify test data exists**: `redis-cli KEYS "ASIN_*" | wc -l` (should show 3000+ keys)
 
-#### "LocalStack not responding"
-```bash
-# Check LocalStack health
-curl http://localhost:4566/_localstack/health
+3. **Check SQS consumer logs**: Monitor Terminal 2 for processing messages
 
-# Restart LocalStack
-docker-compose -f docker-compose.development.yml restart localstack
-```
+4. **Verify SQS queues exist**: `awslocal sqs list-queues`
 
-#### "Import errors"
-```bash
-# Ensure you're in the poetry environment
-poetry shell
-
-# Reinstall dependencies
-poetry install
-```
-
-#### "Tests failing"
-```bash
-# Run tests with verbose output
-pytest -v --tb=short
-
-# Check test environment
-export TESTING=true
-pytest tests/
-```
-
-### Performance Issues
-
-#### High Memory Usage
-```bash
-# Check container memory usage
-docker stats
-
-# Reduce test data size
-# Edit scripts/populate_test_data.py - reduce seller counts
-```
-
-#### Slow Response Times
-```bash
-# Check Redis performance
-redis-cli --latency
-
-# Monitor application logs
-docker-compose -f docker-compose.development.yml logs app
-```
+5. **Check webhook processing**: Look for "accepted" response in webhook calls
 
 ## 🎯 Next Steps
 
-After completing the quickstart:
-
-1. **Explore the API**: Visit http://localhost:8000/docs for interactive API documentation
-2. **Run Load Tests**: Experiment with different load patterns
-3. **Customize Strategies**: Modify pricing strategies in `src/strategies/`
-4. **Add Features**: Implement new functionality using the existing patterns
-5. **Deploy**: Follow production deployment guide for staging/production
-
-## 📞 Support
-
-- **Issues**: Create GitHub issues for bugs
-- **Documentation**: Check `/docs` folder for detailed guides
-- **Code Examples**: See `/tests` for usage examples
+- Explore the codebase in `src/` directory
+- Add new repricing strategies in `src/strategies/`
+- Modify test data generation in `scripts/populate_test_data.py`
+- Check out `QUICKSTART_DOCKER.md` for Docker-based development
+- Review API documentation at `http://localhost:8000/docs`
 
 ---
 
-✨ **You're all set!** The urepricer system is now running locally with test data and ready for development.
+🎉 **You're all set!** The local URepricer environment is ready for development and testing.

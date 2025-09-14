@@ -44,17 +44,25 @@ class TestPriceResetAPI:
         """
         # Setup test product
         test_product = SAMPLE_PRODUCT_DATA.copy()
-        setup_test_products([test_product])
         
-        # Call price reset endpoint
-        reset_data = {
-            "asin": test_product["asin"],
-            "seller_id": test_product["seller_id"],
-            "sku": test_product["sku"],
-            "reason": "test_reset"
-        }
-        
-        response = fastapi_client.post("/pricing/reset", json=reset_data)
+        with patch('src.api.webhook_router.redis_service') as mock_redis:
+            # Mock Redis service calls
+            async def mock_get_product_data(*args, **kwargs):
+                return test_product
+            async def mock_save_calculated_price(*args, **kwargs):
+                return True
+            mock_redis.get_product_data.side_effect = mock_get_product_data
+            mock_redis.save_calculated_price.side_effect = mock_save_calculated_price
+            
+            # Call price reset endpoint
+            reset_data = {
+                "asin": test_product["asin"],
+                "seller_id": test_product["seller_id"],
+                "sku": test_product["sku"],
+                "reason": "test_reset"
+            }
+            
+            response = fastapi_client.post("/pricing/reset", json=reset_data)
         
         # Verify response
         assert response.status_code == 200
@@ -97,7 +105,9 @@ class TestPriceResetAPI:
     def test_price_reset_product_not_found(self, fastapi_client):
         """Test price reset when product is not found in Redis."""
         with patch('src.api.webhook_router.redis_service') as mock_redis:
-            mock_redis.get_product_data.return_value = None
+            async def mock_get_product_data(*args, **kwargs):
+                return None
+            mock_redis.get_product_data.side_effect = mock_get_product_data
             
             reset_data = {
                 "asin": "B07NONEXISTENT",
@@ -116,7 +126,10 @@ class TestPriceResetAPI:
         product_without_default["default_price"] = None
         
         with patch('src.api.webhook_router.redis_service') as mock_redis:
-            mock_redis.get_product_data.return_value = product_without_default
+            # Make the async method return the product data directly
+            async def mock_get_product_data(*args, **kwargs):
+                return product_without_default
+            mock_redis.get_product_data.side_effect = mock_get_product_data
             
             reset_data = {
                 "asin": product_without_default["asin"],
@@ -135,7 +148,9 @@ class TestPriceResetAPI:
         product_invalid_default["default_price"] = 15.00  # Below min_price of 20.00
         
         with patch('src.api.webhook_router.redis_service') as mock_redis:
-            mock_redis.get_product_data.return_value = product_invalid_default
+            async def mock_get_product_data(*args, **kwargs):
+                return product_invalid_default
+            mock_redis.get_product_data.side_effect = mock_get_product_data
             
             reset_data = {
                 "asin": product_invalid_default["asin"],
@@ -154,7 +169,9 @@ class TestPriceResetAPI:
         product_invalid_default["default_price"] = 55.00  # Above max_price of 50.00
         
         with patch('src.api.webhook_router.redis_service') as mock_redis:
-            mock_redis.get_product_data.return_value = product_invalid_default
+            async def mock_get_product_data(*args, **kwargs):
+                return product_invalid_default
+            mock_redis.get_product_data.side_effect = mock_get_product_data
             
             reset_data = {
                 "asin": product_invalid_default["asin"],
@@ -172,8 +189,12 @@ class TestPriceResetAPI:
         test_product = SAMPLE_PRODUCT_DATA.copy()
         
         with patch('src.api.webhook_router.redis_service') as mock_redis:
-            mock_redis.get_product_data.return_value = test_product
-            mock_redis.save_calculated_price.return_value = False  # Simulate save failure
+            async def mock_get_product_data(*args, **kwargs):
+                return test_product
+            async def mock_save_calculated_price(*args, **kwargs):
+                return False  # Simulate save failure
+            mock_redis.get_product_data.side_effect = mock_get_product_data
+            mock_redis.save_calculated_price.side_effect = mock_save_calculated_price
             
             reset_data = {
                 "asin": test_product["asin"],
@@ -207,18 +228,26 @@ class TestManualRepricingAPI:
         """
         # Setup test product
         test_product = SAMPLE_PRODUCT_DATA.copy()
-        setup_test_products([test_product])
         
-        # Call manual repricing endpoint
-        pricing_data = {
-            "asin": test_product["asin"],
-            "seller_id": test_product["seller_id"],
-            "sku": test_product["sku"],
-            "new_price": 35.50,
-            "reason": "test_manual_adjustment"
-        }
-        
-        response = fastapi_client.post("/pricing/manual", json=pricing_data)
+        with patch('src.api.webhook_router.redis_service') as mock_redis:
+            # Mock Redis service calls
+            async def mock_get_product_data(*args, **kwargs):
+                return test_product
+            async def mock_save_calculated_price(*args, **kwargs):
+                return True
+            mock_redis.get_product_data.side_effect = mock_get_product_data
+            mock_redis.save_calculated_price.side_effect = mock_save_calculated_price
+            
+            # Call manual repricing endpoint
+            pricing_data = {
+                "asin": test_product["asin"],
+                "seller_id": test_product["seller_id"],
+                "sku": test_product["sku"],
+                "new_price": 35.50,
+                "reason": "test_manual_adjustment"
+            }
+            
+            response = fastapi_client.post("/pricing/manual", json=pricing_data)
         
         # Verify response
         assert response.status_code == 200
@@ -283,7 +312,9 @@ class TestManualRepricingAPI:
     def test_manual_repricing_product_not_found(self, fastapi_client):
         """Test manual repricing when product is not found in Redis."""
         with patch('src.api.webhook_router.redis_service') as mock_redis:
-            mock_redis.get_product_data.return_value = None
+            async def mock_get_product_data(*args, **kwargs):
+                return None
+            mock_redis.get_product_data.side_effect = mock_get_product_data
             
             pricing_data = {
                 "asin": "B07NONEXISTENT",
@@ -302,7 +333,9 @@ class TestManualRepricingAPI:
         test_product = SAMPLE_PRODUCT_DATA.copy()
         
         with patch('src.api.webhook_router.redis_service') as mock_redis:
-            mock_redis.get_product_data.return_value = test_product
+            async def mock_get_product_data(*args, **kwargs):
+                return test_product
+            mock_redis.get_product_data.side_effect = mock_get_product_data
             
             pricing_data = {
                 "asin": test_product["asin"],
@@ -321,7 +354,9 @@ class TestManualRepricingAPI:
         test_product = SAMPLE_PRODUCT_DATA.copy()
         
         with patch('src.api.webhook_router.redis_service') as mock_redis:
-            mock_redis.get_product_data.return_value = test_product
+            async def mock_get_product_data(*args, **kwargs):
+                return test_product
+            mock_redis.get_product_data.side_effect = mock_get_product_data
             
             pricing_data = {
                 "asin": test_product["asin"],
@@ -340,8 +375,12 @@ class TestManualRepricingAPI:
         test_product = SAMPLE_PRODUCT_DATA.copy()
         
         with patch('src.api.webhook_router.redis_service') as mock_redis:
-            mock_redis.get_product_data.return_value = test_product
-            mock_redis.save_calculated_price.return_value = True
+            async def mock_get_product_data(*args, **kwargs):
+                return test_product
+            async def mock_save_calculated_price(*args, **kwargs):
+                return True
+            mock_redis.get_product_data.side_effect = mock_get_product_data
+            mock_redis.save_calculated_price.side_effect = mock_save_calculated_price
             
             # Test at min price boundary
             pricing_data = {
@@ -367,8 +406,12 @@ class TestManualRepricingAPI:
         test_product = SAMPLE_PRODUCT_DATA.copy()
         
         with patch('src.api.webhook_router.redis_service') as mock_redis:
-            mock_redis.get_product_data.return_value = test_product
-            mock_redis.save_calculated_price.return_value = False  # Simulate save failure
+            async def mock_get_product_data(*args, **kwargs):
+                return test_product
+            async def mock_save_calculated_price(*args, **kwargs):
+                return False  # Simulate save failure
+            mock_redis.get_product_data.side_effect = mock_get_product_data
+            mock_redis.save_calculated_price.side_effect = mock_save_calculated_price
             
             pricing_data = {
                 "asin": test_product["asin"],
@@ -395,8 +438,12 @@ class TestPricingEndpointsEdgeCases:
         product_no_bounds["max_price"] = None
         
         with patch('src.api.webhook_router.redis_service') as mock_redis:
-            mock_redis.get_product_data.return_value = product_no_bounds
-            mock_redis.save_calculated_price.return_value = True
+            async def mock_get_product_data(*args, **kwargs):
+                return product_no_bounds
+            async def mock_save_calculated_price(*args, **kwargs):
+                return True
+            mock_redis.get_product_data.side_effect = mock_get_product_data
+            mock_redis.save_calculated_price.side_effect = mock_save_calculated_price
             
             # Test price reset (should work with default_price)
             reset_data = {
@@ -426,8 +473,12 @@ class TestPricingEndpointsEdgeCases:
         test_product = SAMPLE_PRODUCT_DATA.copy()
         
         with patch('src.api.webhook_router.redis_service') as mock_redis:
-            mock_redis.get_product_data.return_value = test_product
-            mock_redis.save_calculated_price.return_value = True
+            async def mock_get_product_data(*args, **kwargs):
+                return test_product
+            async def mock_save_calculated_price(*args, **kwargs):
+                return True
+            mock_redis.get_product_data.side_effect = mock_get_product_data
+            mock_redis.save_calculated_price.side_effect = mock_save_calculated_price
             
             # Test manual repricing with decimal price
             pricing_data = {
@@ -447,8 +498,12 @@ class TestPricingEndpointsEdgeCases:
         test_product = SAMPLE_PRODUCT_DATA.copy()
         
         with patch('src.api.webhook_router.redis_service') as mock_redis:
-            mock_redis.get_product_data.return_value = test_product
-            mock_redis.save_calculated_price.return_value = True
+            async def mock_get_product_data(*args, **kwargs):
+                return test_product
+            async def mock_save_calculated_price(*args, **kwargs):
+                return True
+            mock_redis.get_product_data.side_effect = mock_get_product_data
+            mock_redis.save_calculated_price.side_effect = mock_save_calculated_price
             
             import concurrent.futures
             

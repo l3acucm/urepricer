@@ -109,7 +109,28 @@ class TestDataPopulator:
         marketplaces = ['US', 'UK', 'CA', 'AU'] if platform == 'amazon' else ['US']
         strategy_types = ['LOWEST_PRICE', 'MATCH_BUYBOX', 'FBA_LOWEST', 'FIXED_PRICE']
         
-        for i in range(count):
+        # First, add guaranteed QUICKSTART seller
+        if platform == 'amazon':
+            quickstart_seller = TestSeller(
+                seller_id="A1234567890123",
+                platform=platform,
+                marketplace_type="US",
+                active_listings=50,
+                strategy_types=['MATCH_BUYBOX', 'LOWEST_PRICE']
+            )
+            sellers.append(quickstart_seller)
+        elif platform == 'walmart':
+            quickstart_seller = TestSeller(
+                seller_id="WM12345678",
+                platform=platform,
+                marketplace_type="US",
+                active_listings=25,
+                strategy_types=['FIXED_PRICE']
+            )
+            sellers.append(quickstart_seller)
+        
+        # Generate remaining sellers (count - 1 to account for quickstart seller)
+        for i in range(count - 1):
             seller = TestSeller(
                 seller_id=self.generate_seller_id(platform),
                 platform=platform,
@@ -152,9 +173,59 @@ class TestDataPopulator:
             'competitor_price': competitor_price
         }
 
+    def create_quickstart_products(self) -> List[TestProduct]:
+        """Create guaranteed products for QUICKSTART.md examples."""
+        quickstart_products = []
+        
+        # Amazon product from QUICKSTART.md
+        amazon_pricing = self.generate_pricing_scenario()
+        amazon_product = TestProduct(
+            asin="B01234567890",
+            sku="A12-QUICKSTART01",
+            seller_id="A1234567890123",
+            platform="amazon",
+            marketplace_type="US",
+            listed_price=amazon_pricing['listed_price'],
+            min_price=amazon_pricing['min_price'],
+            max_price=amazon_pricing['max_price'],
+            default_price=amazon_pricing['default_price'],
+            competitor_price=amazon_pricing['competitor_price'],
+            strategy_id="1",  # WIN_BUYBOX strategy
+            is_b2b=False,
+            product_name="QUICKSTART Amazon Test Product",
+            scenario=amazon_pricing['scenario']
+        )
+        quickstart_products.append(amazon_product)
+        
+        # Walmart product from QUICKSTART.md
+        walmart_pricing = self.generate_pricing_scenario()
+        walmart_product = TestProduct(
+            asin="WM123456789",
+            sku="WM12-QUICKSTART01",
+            seller_id="WM12345678",
+            platform="walmart",
+            marketplace_type="US",
+            listed_price=walmart_pricing['listed_price'],
+            min_price=walmart_pricing['min_price'],
+            max_price=walmart_pricing['max_price'],
+            default_price=walmart_pricing['default_price'],
+            competitor_price=walmart_pricing['competitor_price'],
+            strategy_id="3",  # ONLY_SELLER strategy
+            is_b2b=False,
+            product_name="QUICKSTART Walmart Test Product",
+            scenario=walmart_pricing['scenario']
+        )
+        quickstart_products.append(walmart_product)
+        
+        return quickstart_products
+
     def generate_test_products(self, sellers: List[TestSeller]) -> List[TestProduct]:
         """Generate test products for sellers."""
         products = []
+        
+        # First, create guaranteed products for QUICKSTART.md examples
+        quickstart_products = self.create_quickstart_products()
+        products.extend(quickstart_products)
         
         for seller in sellers:
             # Generate 2-5 products per seller

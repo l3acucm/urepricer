@@ -35,14 +35,6 @@ class ChaseBuyBox(BaseStrategy):
                 self.product.strategy.beat_by
             )
             
-            # Check if we're already in a better position than the calculated price
-            # This prevents price spiral when we're already winning
-            if (self.product.listed_price is not None and 
-                self.product.listed_price < raw_price):
-                raise SkipProductRepricing(
-                    f"Already winning with better price: our price ({self.product.listed_price}) "
-                    f"is better than calculated price ({raw_price})"
-                )
             
             # Process price with bounds checking
             processed_price = self.process_price_with_bounds_check(
@@ -91,14 +83,6 @@ class ChaseBuyBox(BaseStrategy):
                     self.product.strategy.beat_by
                 )
                 
-                # Check if tier is already in a better position (same logic as standard pricing)
-                if (hasattr(tier, 'listed_price') and tier.listed_price is not None and 
-                    tier.listed_price < raw_price):
-                    self.logger.info(
-                        f"B2B tier {tier_key} already winning: current ({tier.listed_price}) "
-                        f"better than calculated ({raw_price})"
-                    )
-                    continue
                 
                 # Process and validate price for this tier
                 processed_price = self.process_price_with_bounds_check(

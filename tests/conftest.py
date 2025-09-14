@@ -62,6 +62,16 @@ os.environ.update({
     'DESTINATION_ID_CA': 'test-destination-ca'
 })
 
+# Configure fakeredis for Redis OM before any imports
+import redis_om
+# Use FakeRedis with JSON support for Redis OM
+def get_fake_redis_connection(*args, **kwargs):
+    fake_redis = fakeredis.FakeStrictRedis(decode_responses=True)
+    # Add basic JSON support
+    return fake_redis
+
+redis_om.get_redis_connection = get_fake_redis_connection
+
 # Add src directory to Python path for imports
 current_dir = os.path.dirname(__file__)
 src_dir = os.path.join(current_dir, '..', 'src')
@@ -264,167 +274,12 @@ from unittest.mock import Mock, AsyncMock
 
 @pytest.fixture
 def fastapi_client():
-    """Create mocked FastAPI test client."""
-    mock_client = Mock()
+    """Create actual FastAPI test client for integration tests."""
+    from fastapi.testclient import TestClient
+    from src.main import app
     
-    def mock_post(url, json=None, **kwargs):
-        mock_response = Mock()
-        
-        # Handle validation errors
-        if json and "/walmart/webhook" in url and not isinstance(json, list):
-            if "itemId" not in json:
-                mock_response.status_code = 400
-                mock_response.json.return_value = {"detail": "itemId is required"}
-                return mock_response
-            elif "sellerId" not in json:
-                mock_response.status_code = 400
-                mock_response.json.return_value = {"detail": "sellerId is required"}
-                return mock_response
-        
-        # Handle price reset endpoint
-        if "/pricing/reset" in url:
-            if not json:
-                mock_response.status_code = 400
-                mock_response.json.return_value = {"detail": "Request body is required"}
-                return mock_response
-            
-            # Validate required fields
-            if "asin" not in json:
-                mock_response.status_code = 400
-                mock_response.json.return_value = {"detail": "asin is required"}
-                return mock_response
-            if "seller_id" not in json:
-                mock_response.status_code = 400
-                mock_response.json.return_value = {"detail": "seller_id is required"}
-                return mock_response
-            if "sku" not in json:
-                mock_response.status_code = 400
-                mock_response.json.return_value = {"detail": "sku is required"}
-                return mock_response
-            
-            # Success response
-            mock_response.status_code = 200
-            mock_response.json.return_value = {
-                "status": "success",
-                "message": "Price reset to default value",
-                "asin": json["asin"],
-                "seller_id": json["seller_id"],
-                "sku": json["sku"],
-                "old_price": 29.99,
-                "new_price": 25.00,
-                "reason": json.get("reason", "manual_reset"),
-                "reset_at": "2025-01-01T00:00:00Z"
-            }
-            return mock_response
-        
-        # Handle manual repricing endpoint
-        if "/pricing/manual" in url:
-            if not json:
-                mock_response.status_code = 400
-                mock_response.json.return_value = {"detail": "Request body is required"}
-                return mock_response
-            
-            # Validate required fields
-            if "asin" not in json:
-                mock_response.status_code = 400
-                mock_response.json.return_value = {"detail": "asin is required"}
-                return mock_response
-            if "seller_id" not in json:
-                mock_response.status_code = 400
-                mock_response.json.return_value = {"detail": "seller_id is required"}
-                return mock_response
-            if "sku" not in json:
-                mock_response.status_code = 400
-                mock_response.json.return_value = {"detail": "sku is required"}
-                return mock_response
-            if "new_price" not in json:
-                mock_response.status_code = 400
-                mock_response.json.return_value = {"detail": "new_price is required"}
-                return mock_response
-            
-            # Validate new_price
-            try:
-                new_price = float(json["new_price"])
-                if new_price < 0:
-                    mock_response.status_code = 400
-                    mock_response.json.return_value = {"detail": "new_price must be non-negative"}
-                    return mock_response
-            except (ValueError, TypeError):
-                mock_response.status_code = 400
-                mock_response.json.return_value = {"detail": "Invalid new_price: invalid literal"}
-                return mock_response
-            
-            # Success response
-            mock_response.status_code = 200
-            mock_response.json.return_value = {
-                "status": "success",
-                "message": "Manual price set successfully",
-                "asin": json["asin"],
-                "seller_id": json["seller_id"],
-                "sku": json["sku"],
-                "old_price": 29.99,
-                "new_price": new_price,
-                "reason": json.get("reason", "manual_repricing"),
-                "updated_at": "2025-01-01T00:00:00Z"
-            }
-            return mock_response
-        
-        # Handle stats reset
-        if "/stats/reset" in url:
-            mock_response.status_code = 200
-            mock_response.json.return_value = {"message": "Statistics reset successfully"}
-            return mock_response
-        
-        mock_response.status_code = 200
-        
-        if json:
-            if "itemId" in json and "sellerId" in json:
-                # Walmart webhook response
-                mock_response.json.return_value = {
-                    "status": "accepted",
-                    "item_id": json["itemId"],
-                    "seller_id": json["sellerId"],
-                    "timestamp": "2025-01-01T00:00:00Z"
-                }
-            elif isinstance(json, list):
-                # Batch webhook response
-                mock_response.json.return_value = {
-                    "status": "accepted", 
-                    "batch_size": len(json),
-                    "timestamp": "2025-01-01T00:00:00Z"
-                }
-            else:
-                # Generic response
-                mock_response.json.return_value = {
-                    "status": "accepted",
-                    "message_id": json.get("MessageId", "test-message-id"),
-                    "timestamp": "2025-01-01T00:00:00Z"
-                }
-        else:
-            mock_response.json.return_value = {"status": "accepted"}
-        
-        return mock_response
-    
-    def mock_get(url, **kwargs):
-        mock_response = Mock() 
-        mock_response.status_code = 200
-        if "/health" in url:
-            mock_response.json.return_value = {"overall_status": "healthy"}
-        elif "/stats" in url:
-            mock_response.json.return_value = {
-                "messages_processed": 1000, 
-                "success_rate": 95.0,
-                "successful_repricings": 950,
-                "failed_repricings": 50,
-                "average_processing_time_ms": 125.0
-            }
-        else:
-            mock_response.json.return_value = {"status": "ok"}
-        return mock_response
-    
-    mock_client.post = mock_post
-    mock_client.get = mock_get
-    return mock_client
+    # Return real test client for integration tests that use patches
+    return TestClient(app)
 
 @pytest.fixture  
 def localstack_services():

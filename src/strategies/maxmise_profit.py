@@ -16,11 +16,6 @@ class MaximiseProfit(BaseStrategy):
             if not self.product.competitor_price:
                 raise SkipProductRepricing("No competitor price available")
             
-            # Check if competitor price is higher than our current price
-            if self.product.competitor_price <= self.product.listed_price:
-                raise SkipProductRepricing(
-                    f'Competitor ({self.product.competitor_price}) is at lower price than us ({self.product.listed_price})'
-                )
             
             # For maximize profit, we match competitor price exactly
             competitor_price = self.round_price(self.product.competitor_price)

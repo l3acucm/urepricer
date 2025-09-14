@@ -21,11 +21,11 @@ services:
     environment:
       - SERVICES=sqs,sns,s3
       - DEBUG=1
-      - DATA_DIR=/tmp/localstack/data
+      - DATA_DIR=/var/lib/localstack
       - DOCKER_HOST=unix:///var/run/docker.sock
       - AWS_DEFAULT_REGION=us-east-1
     volumes:
-      - localstack_data_dev:/tmp/localstack
+      - localstack_data_dev:/var/lib/localstack
       - /var/run/docker.sock:/var/run/docker.sock
       - ./scripts/localstack-init.sh:/etc/localstack/init/ready.d/localstack-init.sh
     healthcheck:
@@ -37,16 +37,13 @@ services:
   app:
     build:
       context: .
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
+      target: development
     container_name: urepricer-app-dev
     ports:
       - "8000:8000"
-    environment:
-      - DEBUG=true
-      - REDIS_URL=redis://redis:6379/0
-      - AWS_ENDPOINT_URL=http://localstack:4566
-      - SQS_QUEUE_URL_ANY_OFFER=http://localstack:4566/000000000000/amazon-any-offer-changed-queue
-      - SQS_QUEUE_URL_FEED_PROCESSING=http://localstack:4566/000000000000/feed-processing-queue
+    env_file:
+      - .env.local
     volumes:
       - .:/app
       - /app/.venv  # Exclude poetry venv from being overwritten
@@ -62,16 +59,14 @@ services:
       timeout: 10s
       retries: 3
 
-  # Celery Worker (Development)
-  celery-worker:
+  sqs-consumer:
     build:
       context: .
-      dockerfile: Dockerfile.dev
-    container_name: urepricer-celery-dev
-    environment:
-      - DEBUG=true
-      - REDIS_URL=redis://redis:6379/0
-      - AWS_ENDPOINT_URL=http://localstack:4566
+      dockerfile: Dockerfile
+      target: development
+    container_name: urepricer-sqs-consumer-dev
+    env_file:
+      - .env.local
     volumes:
       - .:/app
       - /app/.venv
@@ -80,7 +75,8 @@ services:
         condition: service_healthy
       localstack:
         condition: service_healthy
-    command: ["celery", "-A", "src.celery_app", "worker", "--loglevel=info"]
+    command: ["python3", "-m", "src.services.sqs_consumer"]
+    restart: unless-stopped
 
 volumes:
   redis_data_dev:

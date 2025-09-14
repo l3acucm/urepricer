@@ -126,9 +126,7 @@ class CalculatedPrice(BaseModel):
     # Metadata
     calculated_at: datetime = Field(default_factory=datetime.utcnow, description="Calculation timestamp")
     competitor_price: Optional[float] = Field(None, description="Competitor price used")
-    
-    # B2B tier pricing (if applicable)
-    tier_prices: Optional[Dict[str, float]] = Field(None, description="B2B tier pricing")
+
     
     # Processing info for logging
     processing_time_ms: Optional[float] = Field(None, description="Processing time in milliseconds")

@@ -25,13 +25,7 @@ async def lifespan(app: FastAPI):
     # Create database tables if needed
     # await create_tables()
     
-    # Initialize SQS consumer
-    try:
-        sqs_consumer = get_sqs_consumer()
-        await sqs_consumer.initialize()
-        logger.info("SQS consumer initialized")
-    except Exception as e:
-        logger.warning(f"Could not initialize SQS consumer: {e}")
+    # Note: SQS consumer should be run separately via: python3 -m src.services.sqs_consumer
     
     logger.info("Arbitrage Hero API started successfully")
     yield

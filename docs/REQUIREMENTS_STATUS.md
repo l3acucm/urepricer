@@ -6,37 +6,33 @@ This document tracks the implementation status of all requirements extracted fro
 
 ### Core Repricing Strategy
 
-| Requirement | Description | Implemented | Test Reference | Source |
-|-------------|-------------|:-----------:|----------------|---------|
-| **Competitive Price Matching** | Support MATCH_BUYBOX, LOWEST_FBA_PRICE, LOWEST_PRICE strategies with MATCH_BUYBOX as default | ✅ | `test_competitor_analysis.py::test_competitors_info_routing` | Repricer Strategy Properties Values.html |
-| **Price Adjustment Logic** | Implement beat_by functionality with positive/negative values, default 0 | ✅ | `test_strategies.py::test_chase_buybox_beats_competitor_price` | Repricer Strategy Properties Values.html |
-| **Boundary Rule Enforcement** | Apply JUMP_TO_MIN, JUMP_TO_MAX, JUMP_TO_AVG, DO_NOTHING, DEFAULT_PRICE, MATCH_COMPETITOR rules | ✅ | `test_strategy_price_bounds.py::TestPriceBoundsValidation` | Repricer Strategy Properties Values.html |
-| **Inventory Age-Based Repricing** | Support age-based strategy switching (0-90, 91-180, 181-270, 271-365, 365+ days) | ❌ | - | Repricer Strategy Properties Values.html |
-
-### B2B Repricing Support
-
-| Requirement | Description | Implemented | Test Reference | Source |
-|-------------|-------------|:-----------:|----------------|---------|
-| **B2B Competitive Logic** | Handle B2B repricing with quantity-based competition (LOW/HIGH) | ✅ | `test_competitor_analysis.py::test_b2b_pricing_with_tiers` | Repricer Strategy Properties Values.html |
-| **B2B Price Adjustment** | Support AVERAGE and BEAT_BY price adjustment rules for B2B | ✅ | `test_strategies.py::test_only_seller_strategy_b2b_tiers` | Repricer Strategy Properties Values.html |
-| **B2B Tier Management** | Support 5-tier B2B pricing structure (Tier 1-5) with quantity thresholds | ✅ | `test_e2e_redis_integration.py::test_b2b_product_with_tiers_storage` | Repricer Queues.html |
+| Requirement                                    | Description                                                                                                                                                                             | Implemented | Test Reference | Source                                   |
+|------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:-----------:|----------------|------------------------------------------|
+| **Competitive Price Matching**                 | Support MATCH_BUYBOX, LOWEST_FBA_PRICE, LOWEST_PRICE strategies with MATCH_BUYBOX as default                                                                                            | ✅ | `test_competitor_analysis.py::test_competitors_info_routing` | Repricer Strategy Properties Values.html |
+| **Price Adjustment Logic**                     | Implement beat_by functionality with positive/negative values, default 0                                                                                                                | ✅ | `test_strategies.py::test_chase_buybox_beats_competitor_price` | Repricer Strategy Properties Values.html |
+| **Boundary Rule Enforcement**                  | Apply JUMP_TO_MIN, JUMP_TO_MAX, JUMP_TO_AVG, DO_NOTHING, DEFAULT_PRICE, MATCH_COMPETITOR rules                                                                                          | ✅ | `test_strategy_price_bounds.py::TestPriceBoundsValidation` | Repricer Strategy Properties Values.html |
+| **Inventory Age-Based Repricing**              | Support age-based strategy switching (0-90, 91-180, 181-270, 271-365, 365+ days)                                                                                                        | ❌ | - | Repricer Strategy Properties Values.html |
+| **Two sellers with same product and strategy** | Find a solution how repricer should work when two buybox chasers selling same product with same strategy                                                                                | ❌ | - | Question from Max                        |
+| **beat_by must be actual even when**           | There should be one more trigger for repricing: when competitor increases his price whereas we're winning - we should increase our price as well to beat him excactly by beat_by amount | ❌ | - | Question from Max                        |
+| **Self-Competition Prevention**               | Skip repricing when seller already offers lowest price/FBA price/has buybox | ✅ | `test_competitor_analysis.py::test_set_fba_lowest_price_skip_own_offer` | Repricer Exception Handling.html |
 
 ### Exception Handling and Skipping Logic
 
-| Requirement | Description | Implemented | Test Reference | Source |
-|-------------|-------------|:-----------:|----------------|---------|
-| **Self-Competition Prevention** | Skip repricing when seller already offers lowest price/FBA price/has buybox | ✅ | `test_competitor_analysis.py::test_set_fba_lowest_price_skip_own_offer` | Repricer Exception Handling.html |
-| **Data Validation Skipping** | Skip repricing for missing ASIN data, strategy_id, invalid prices, zero inventory | ✅ | `test_price_validation.py::TestProductListingPriceValidation` | Repricer Exception Handling.html |
-| **Strategy Rule Validation** | Validate strategy rules and skip with error messages for invalid configurations | ✅ | `test_strategies_fixed.py::test_price_bounds_validation` | Repricer Exception Handling.html |
+| Requirement                                   | Description | Implemented | Test Reference | Source |
+|-----------------------------------------------|-------------|:-----------:|----------------|---------|
+| **Price must stay around nearest competitor** | Skip repricing when seller already offers lowest price/FBA price/has buybox | ✅ | `test_competitor_analysis.py::test_set_fba_lowest_price_skip_own_offer` | Repricer Exception Handling.html |
+| **Data Validation Skipping**                  | Skip repricing for missing ASIN data, strategy_id, invalid prices, zero inventory | ✅ | `test_price_validation.py::TestProductListingPriceValidation` | Repricer Exception Handling.html |
+| **Strategy Rule Validation**                  | Validate strategy rules and skip with error messages for invalid configurations | ✅ | `test_strategies_fixed.py::test_price_bounds_validation` | Repricer Exception Handling.html |
 
 ### Repricing Triggers
 
-| Requirement | Description | Implemented | Test Reference | Source |
-|-------------|-------------|:-----------:|----------------|---------|
-| **Multi-Platform Notification Support** | Support three repricing triggers with different price calculation methods, all resulting in updated prices stored in Redis | ✅ | Multiple test files (see details below) | System Requirements Analysis |
-| **SQS/Webhook Strategy-Based Triggers** | Amazon AnyOfferChanged SQS messages and Walmart buy box webhook notifications trigger strategy-based repricing (ChaseBuyBox, MaximiseProfit, etc.) | ✅ | `test_e2e_sqs_repricing.py::test_sqs_message_triggers_repricing_success`, `test_e2e_fastapi_repricing.py::test_walmart_webhook_triggers_repricing_success` | System Requirements Analysis |
-| **Price Reset Triggers** | API endpoints to reset prices to default_price values without strategy calculation, with results stored in Redis | ✅ | `test_pricing_endpoints.py::TestPriceResetAPI::test_price_reset_success`, `test_e2e_fastapi_repricing.py::test_price_reset_endpoint` | System Requirements Analysis |
-| **Manual Repricing Triggers** | API endpoints to set prices to exact provided values without strategy calculation, with results stored in Redis | ✅ | `test_pricing_endpoints.py::TestManualRepricingAPI::test_manual_repricing_success`, `test_e2e_fastapi_repricing.py::test_manual_repricing_endpoint` | System Requirements Analysis |
+| Requirement                                  | Description                                                                                                                                        | Implemented | Test Reference                                                                                                                                             | Source                       |
+|----------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------|:-----------:|------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------|
+| **Multi-Platform Notification Support**      | Support three repricing triggers with different price calculation methods, all resulting in updated prices stored in Redis                         | ✅ | Multiple test files (see details below)                                                                                                                    | System Requirements Analysis |
+| **SQS/Webhook Strategy-Based Triggers**      | Amazon AnyOfferChanged SQS messages and Walmart buy box webhook notifications trigger strategy-based repricing (ChaseBuyBox, MaximiseProfit, etc.) | ✅ | `test_e2e_sqs_repricing.py::test_sqs_message_triggers_repricing_success`, `test_e2e_fastapi_repricing.py::test_walmart_webhook_triggers_repricing_success` | System Requirements Analysis |
+| **Price Reset Triggers**                     | API endpoints to reset prices to default_price values without strategy calculation, with results stored in Redis                                   | ✅ | `test_pricing_endpoints.py::TestPriceResetAPI::test_price_reset_success`, `test_e2e_fastapi_repricing.py::test_price_reset_endpoint`                       | System Requirements Analysis |
+| **Manual Repricing Triggers**                | API endpoints to set prices to exact provided values without strategy calculation, with results stored in Redis                                    | ✅ | `test_pricing_endpoints.py::TestManualRepricingAPI::test_manual_repricing_success`, `test_e2e_fastapi_repricing.py::test_manual_repricing_endpoint`        | System Requirements Analysis |
+| **Handle Report Changes outside of Service** | If user changed price manually in Amazon/Walmart console it should affect repricing decision and price calculation                                 | ❌ | Bo                                                                                                                                                         | Question from Max            |
 
 ### Future Enhancements
 
@@ -60,7 +56,6 @@ This document tracks the implementation status of all requirements extracted fro
 
 | Requirement | Description | Implemented | Test Reference | Source |
 |-------------|-------------|:-----------:|----------------|---------|
-| **Kafka Topic Management** | Implement multiple Kafka topics (ah_repricer, ah-repricer-listing-data, etc.) | ❌ | - | Repricer Queues.html |
 | **SQS Integration** | Support SQS queue integration with processed data output under 250MB | ✅ | `test_e2e_sqs_repricing.py::TestAmazonSQSRepricing` | Repricer Queues.html |
 | **Batch Processing** | Handle single and batch message processing for bulk operations | ✅ | `test_e2e_fastapi_repricing.py::test_walmart_webhook_batch_processing` | Repricer Queues.html |
 
@@ -71,6 +66,7 @@ This document tracks the implementation status of all requirements extracted fro
 | **Real-time Alerts** | Provide real-time alerting for credential failures, feed errors, hourly updates | ❌ | - | Repricer Queues.html |
 | **Error Tracking** | Track and report error types with detailed error messages and context | ✅ | `test_e2e_fastapi_repricing.py::test_walmart_webhook_processing_failure` | Repricer Queues.html |
 
+
 ## Deployment Requirements
 
 ### Container and Orchestration
@@ -78,14 +74,11 @@ This document tracks the implementation status of all requirements extracted fro
 | Requirement | Description | Implemented | Test Reference | Source |
 |-------------|-------------|:-----------:|----------------|---------|
 | **Docker Containerization** | Containerize using Docker with build, execution, and registry publishing | ✅ | Manual verification with `Dockerfile.dev` | Repricer Deployment.html |
-| **Kubernetes Deployment** | Deploy on Kubernetes with kubeadm, Calico networking, pod management | ✅ | Manual verification with `docker-compose.development.yml` | Repricer Deployment.html |
-| **Helm Chart Management** | Use Helm for deployment with custom charts and values.yaml customization | ❌ | - | Repricer Deployment.html |
 
 ### Infrastructure Components
 
 | Requirement | Description | Implemented | Test Reference | Source |
 |-------------|-------------|:-----------:|----------------|---------|
-| **Kafka Infrastructure** | Deploy Kafka with ZooKeeper coordination and consumer group monitoring | ❌ | - | Repricer Deployment.html |
 | **Cluster Architecture** | Support multi-node Kubernetes cluster with proper networking | ❌ | - | Repricer Deployment.html |
 
 ### Monitoring and Maintenance
@@ -115,11 +108,12 @@ This document tracks the implementation status of all requirements extracted fro
 
 ### Audit and Logging
 
-| Requirement | Description | Implemented | Test Reference | Source |
-|-------------|-------------|:-----------:|----------------|---------|
-| **Price Change Logging** | Log comprehensive price change information with timestamps and metadata | ✅ | `loguru` integration throughout codebase | Repricer Queues.html |
-| **Error Documentation** | Maintain detailed error logs for different failure scenarios | ✅ | Error handling throughout test suite | Repricer Exception Handling.html |
-| **Repricing Message Details** | Generate detailed repricing messages for audit and troubleshooting | ✅ | Strategy test outputs and logging | Repricer Queues.html |
+| Requirement                                    | Description                                                                                    | Implemented | Test Reference                           | Source                           |
+|------------------------------------------------|------------------------------------------------------------------------------------------------|:-----------:|------------------------------------------|----------------------------------|
+| **Price Change Logging**                       | Log comprehensive price change information with timestamps and metadata                        | ✅ | `loguru` integration throughout codebase | Repricer Queues.html             |
+| **Error Documentation**                        | Maintain detailed error logs for different failure scenarios                                   | ✅ | Error handling throughout test suite     | Repricer Exception Handling.html |
+| **Repricing Message Details**                  | Generate detailed repricing messages for audit and troubleshooting                             | ✅ | Strategy test outputs and logging        | Repricer Queues.html             |
+| **Authentic Messages from Platforms in tests** | Tests should use mocked messages from platforms that previously really were obtained from them | ❌ | No                                       | Chat with Max                    |
 
 ## Implementation Summary
 

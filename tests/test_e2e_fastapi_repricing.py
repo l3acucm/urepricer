@@ -80,7 +80,8 @@ class TestFastAPIWebhookRepricing:
         wait_for_processing
     ):
         """
-        Test batch processing of multiple Walmart webhooks.
+        Test processing multiple individual Walmart webhooks (simulating batch).
+        Since there's no batch endpoint, we test individual webhook processing.
         """
         # Setup multiple products
         products = [
@@ -90,40 +91,30 @@ class TestFastAPIWebhookRepricing:
         ]
         setup_test_products(products)
         
-        # Create batch of webhooks
-        webhooks = []
-        for i, product in enumerate(products):
-            webhook = {
-                "eventType": "buybox_changed",
-                "webhookId": f"wh_{i}",
-                "timestamp": "2025-01-15T14:30:00.000Z",
-                "itemId": product["asin"],
-                "sellerId": product["seller_id"],
-                "marketplace": "US",
-                "currentBuyboxPrice": 26.99,
-                "currentBuyboxWinner": "WM_COMPETITOR_456"
-            }
-            webhooks.append(webhook)
-        
-        # Mock batch processing
-        with patch('src.api.webhook_endpoints.orchestrator') as mock_orchestrator:
-            mock_orchestrator.process_message_batch = AsyncMock(return_value=[
-                {"success": True, "price_changed": True},
-                {"success": True, "price_changed": False},
-                {"success": True, "price_changed": True}
-            ])
+        # Mock webhook processing for each product
+        with patch('src.api.webhook_router._process_walmart_webhook_async') as mock_async_processing:
+            mock_async_processing.return_value = None  # Background task returns None
             
-            # Send batch webhook
-            response = fastapi_client.post(
-                "/walmart/webhook/batch",
-                json=webhooks
-            )
-            
-            # Verify batch acceptance
-            assert response.status_code == 200
-            response_data = response.json()
-            assert response_data["status"] == "accepted"
-            assert response_data["batch_size"] == len(webhooks)
+            # Process each webhook individually 
+            for i, product in enumerate(products):
+                webhook = {
+                    "eventType": "buybox_changed",
+                    "itemId": product["asin"],
+                    "sellerId": product["seller_id"],
+                    "marketplace": "US",
+                    "currentBuyboxPrice": 26.99,
+                    "currentBuyboxWinner": "WM_COMPETITOR_456"
+                }
+                
+                # Send individual webhook
+                response = fastapi_client.post("/walmart/webhook", json=webhook)
+                
+                # Verify individual webhook acceptance
+                assert response.status_code == 200
+                response_data = response.json()
+                assert response_data["status"] == "accepted"
+                assert response_data["item_id"] == product["asin"]
+                assert response_data["seller_id"] == product["seller_id"]
         
         wait_for_processing()
     
@@ -193,20 +184,13 @@ class TestFastAPIWebhookRepricing:
         """
         Test the health check endpoint.
         """
-        with patch('src.api.webhook_endpoints.orchestrator') as mock_orchestrator:
-            mock_orchestrator.health_check = AsyncMock(return_value={
-                "overall_status": "healthy",
-                "orchestrator": "healthy",
-                "redis": True,
-                "message_processor": "healthy",
-                "repricing_engine": "healthy"
-            })
-            
-            response = fastapi_client.get("/health")
-            
-            assert response.status_code == 200
-            health_data = response.json()
-            assert health_data["overall_status"] == "healthy"
+        response = fastapi_client.get("/health")
+        
+        assert response.status_code == 200
+        health_data = response.json()
+        # Test actual response format from main.py
+        assert health_data["status"] == "healthy"
+        assert health_data["service"] == "arbitrage-hero"
     
     def test_stats_endpoint(
         self,
@@ -215,23 +199,16 @@ class TestFastAPIWebhookRepricing:
         """
         Test the statistics endpoint.
         """
-        mock_stats = {
-            "messages_processed": 1000,
-            "successful_repricings": 950,
-            "failed_repricings": 50,
-            "success_rate": 95.0,
-            "average_processing_time_ms": 125.0
-        }
+        response = fastapi_client.get("/stats")
         
-        with patch('src.api.webhook_endpoints.orchestrator') as mock_orchestrator:
-            mock_orchestrator.get_processing_stats.return_value = mock_stats
-            
-            response = fastapi_client.get("/stats")
-            
-            assert response.status_code == 200
-            stats_data = response.json()
-            assert stats_data["messages_processed"] == 1000
-            assert stats_data["success_rate"] == 95.0
+        assert response.status_code == 200
+        stats_data = response.json()
+        # Test actual response format from webhook_router.py
+        assert "total_processed" in stats_data
+        assert "successful" in stats_data  
+        assert "failed" in stats_data
+        assert "average_processing_time_ms" in stats_data
+        assert "last_reset" in stats_data
     
     def test_stats_reset_endpoint(
         self,
@@ -310,24 +287,32 @@ class TestFastAPIWebhookRepricing:
         """
         # Setup test product
         test_product = SAMPLE_WALMART_PRODUCT.copy()
-        setup_test_products([test_product])
         
-        # Test price reset
-        reset_data = {
-            "asin": test_product["asin"],
-            "seller_id": test_product["seller_id"],
-            "sku": test_product["sku"],
-            "reason": "integration_test_reset"
-        }
-        
-        response = fastapi_client.post("/pricing/reset", json=reset_data)
-        
-        assert response.status_code == 200
-        response_data = response.json()
-        assert response_data["status"] == "success"
-        assert response_data["new_price"] == 25.00  # Mock client returns fixed value
-        assert "reset_at" in response_data
-        assert response_data["reason"] == "integration_test_reset"
+        with patch('src.api.webhook_router.redis_service') as mock_redis:
+            # Mock Redis service calls
+            async def mock_get_product_data(*args, **kwargs):
+                return test_product
+            async def mock_save_calculated_price(*args, **kwargs):
+                return True
+            mock_redis.get_product_data.side_effect = mock_get_product_data
+            mock_redis.save_calculated_price.side_effect = mock_save_calculated_price
+            
+            # Test price reset
+            reset_data = {
+                "asin": test_product["asin"],
+                "seller_id": test_product["seller_id"],
+                "sku": test_product["sku"],
+                "reason": "integration_test_reset"
+            }
+            
+            response = fastapi_client.post("/pricing/reset", json=reset_data)
+            
+            assert response.status_code == 200
+            response_data = response.json()
+            assert response_data["status"] == "success"
+            assert response_data["new_price"] == 29.00  # Uses default_price from test data
+            assert "reset_at" in response_data
+            assert response_data["reason"] == "integration_test_reset"
     
     def test_manual_repricing_endpoint(
         self,
@@ -339,27 +324,35 @@ class TestFastAPIWebhookRepricing:
         """
         # Setup test product
         test_product = SAMPLE_WALMART_PRODUCT.copy()
-        setup_test_products([test_product])
         
-        # Test manual repricing
-        new_price = 32.50
-        pricing_data = {
-            "asin": test_product["asin"],
-            "seller_id": test_product["seller_id"],
-            "sku": test_product["sku"],
-            "new_price": new_price,
-            "reason": "integration_test_manual"
-        }
-        
-        response = fastapi_client.post("/pricing/manual", json=pricing_data)
-        
-        assert response.status_code == 200
-        response_data = response.json()
-        assert response_data["status"] == "success"
-        assert response_data["new_price"] == new_price
-        assert response_data["old_price"] == 29.99  # Mock client returns fixed value
-        assert "updated_at" in response_data
-        assert response_data["reason"] == "integration_test_manual"
+        with patch('src.api.webhook_router.redis_service') as mock_redis:
+            # Mock Redis service calls
+            async def mock_get_product_data(*args, **kwargs):
+                return test_product
+            async def mock_save_calculated_price(*args, **kwargs):
+                return True
+            mock_redis.get_product_data.side_effect = mock_get_product_data
+            mock_redis.save_calculated_price.side_effect = mock_save_calculated_price
+            
+            # Test manual repricing
+            new_price = 32.50
+            pricing_data = {
+                "asin": test_product["asin"],
+                "seller_id": test_product["seller_id"],
+                "sku": test_product["sku"],
+                "new_price": new_price,
+                "reason": "integration_test_manual"
+            }
+            
+            response = fastapi_client.post("/pricing/manual", json=pricing_data)
+            
+            assert response.status_code == 200
+            response_data = response.json()
+            assert response_data["status"] == "success"
+            assert response_data["new_price"] == new_price
+            assert response_data["old_price"] == 28.99  # Uses listed_price from test data
+            assert "updated_at" in response_data
+            assert response_data["reason"] == "integration_test_manual"
     
     def test_price_reset_validation_errors(
         self,
@@ -368,18 +361,24 @@ class TestFastAPIWebhookRepricing:
         """
         Test price reset endpoint validation error handling.
         """
-        # Test with missing product (mock client always returns success)
-        reset_data = {
-            "asin": "B07NONEXISTENT",
-            "seller_id": "NONEXISTENT_SELLER",
-            "sku": "NONEXISTENT_SKU"
-        }
-        
-        response = fastapi_client.post("/pricing/reset", json=reset_data)
-        
-        # Mock client returns success for valid request format
-        assert response.status_code == 200
-        assert response.json()["status"] == "success"
+        with patch('src.api.webhook_router.redis_service') as mock_redis:
+            # Mock Redis service to return None (product not found)
+            async def mock_get_product_data(*args, **kwargs):
+                return None
+            mock_redis.get_product_data.side_effect = mock_get_product_data
+            
+            # Test with missing product
+            reset_data = {
+                "asin": "B07NONEXISTENT",
+                "seller_id": "NONEXISTENT_SELLER",
+                "sku": "NONEXISTENT_SKU"
+            }
+            
+            response = fastapi_client.post("/pricing/reset", json=reset_data)
+            
+            # Should return 404 for product not found
+            assert response.status_code == 404
+            assert "Product not found" in response.json()["detail"]
     
     def test_manual_repricing_validation_errors(
         self,
@@ -388,18 +387,37 @@ class TestFastAPIWebhookRepricing:
         """
         Test manual repricing endpoint validation error handling.
         """
-        # Test with price above max bounds (mock client handles basic validation)
-        test_product = SAMPLE_WALMART_PRODUCT.copy()
-        
+        # Test with invalid price format
         pricing_data = {
-            "asin": test_product["asin"],
-            "seller_id": test_product["seller_id"],
-            "sku": test_product["sku"],
-            "new_price": 50.01  # Above max_price of 40.00
+            "asin": "W12345678901",
+            "seller_id": "WM_SELLER_123",
+            "sku": "TEST-WAL-SKU-001",
+            "new_price": "not_a_number"
         }
         
         response = fastapi_client.post("/pricing/manual", json=pricing_data)
         
-        # Mock client returns success for valid request format
-        assert response.status_code == 200
-        assert response.json()["status"] == "success"
+        # Should return 400 for invalid price format
+        assert response.status_code == 400  
+        assert "Invalid new_price" in response.json()["detail"]
+        
+        # Test with price above max bounds 
+        test_product = SAMPLE_WALMART_PRODUCT.copy()
+        
+        with patch('src.api.webhook_router.redis_service') as mock_redis:
+            async def mock_get_product_data(*args, **kwargs):
+                return test_product
+            mock_redis.get_product_data.side_effect = mock_get_product_data
+            
+            pricing_data = {
+                "asin": test_product["asin"],
+                "seller_id": test_product["seller_id"],
+                "sku": test_product["sku"],
+                "new_price": 50.01  # Above max_price of 40.00
+            }
+            
+            response = fastapi_client.post("/pricing/manual", json=pricing_data)
+            
+            # Should return 400 for price above max bounds
+            assert response.status_code == 400
+            assert "above maximum price" in response.json()["detail"]

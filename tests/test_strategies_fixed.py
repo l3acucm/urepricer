@@ -131,7 +131,7 @@ def test_maximize_profit_bounds_validation():
         assert product.updated_price is None
         print("✅ PriceBoundsError raised correctly for price above max")
     
-    # Test skip when competitor price is lower
+    # Test strategy processes lower competitor price (no longer skips at strategy level)
     product = create_mock_product(
         listed_price=30.0,
         competitor_price=25.0,  # Lower than listed price
@@ -140,11 +140,9 @@ def test_maximize_profit_bounds_validation():
     )
     
     strategy = MaximiseProfit(product)
-    try:
-        strategy.apply()
-        assert False, "Should have raised SkipProductRepricing"
-    except SkipProductRepricing:
-        print("✅ SkipProductRepricing raised correctly when competitor price is lower")
+    strategy.apply()  # Should NOT raise SkipProductRepricing
+    assert product.updated_price == 25.0  # Should match competitor price
+    print("✅ MaximiseProfit processes lower competitor price (self-competition now handled at RepricingEngine level)")
 
 
 def test_only_seller_bounds_validation():

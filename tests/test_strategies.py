@@ -88,15 +88,8 @@ class TestMaximizeProfit:
     """Test MaximiseProfit strategy with parametrized test cases."""
 
     @pytest.mark.parametrize("listed_price,competitor_price,should_raise", [
-        (120, 100, True),   # Competitor price lower - skip
-        (100, 100, True),   # Equal prices - skip  
-        (80, -90, True),    # Negative competitor - skip
-        (0, 0, True),       # Zero prices - skip
-        (100, 0, True),     # Zero competitor - skip
-        (120, -100, True),  # Negative competitor - skip
-        (1, 1, True),       # Boundary equal - skip
-        (10**9, 10**9, True),  # Large equal - skip
-        (10**15 + 1, 10**15, True),  # Extremely large, competitor lower - skip
+        (0, 0, True),       # Zero competitor - skip (no competitor price)
+        (100, 0, True),     # Zero competitor - skip (no competitor price)
     ])
     def test_apply_should_skip(self, listed_price, competitor_price, should_raise):
         """Test cases where MaximiseProfit should skip repricing."""
@@ -119,7 +112,10 @@ class TestMaximizeProfit:
 
     @pytest.mark.parametrize("listed_price,competitor_price,expected_price", [
         (120, 150, 150),      # Competitor higher - update
-        (1, 1000, 1000),     # Large difference - update
+        (100, 120, 120),      # Competitor higher - update  
+        (100, 100, 100),      # Equal prices - update (no longer skip at strategy level)
+        (120, 100, 100),      # Competitor lower - update (no longer skip at strategy level)
+        (1, 1000, 1000),      # Large difference - update
         (50.25, 75.678, 75.68),  # Decimal rounding test
         (100, 125.99, 125.99), # Normal case
     ])
@@ -516,13 +512,13 @@ class TestChaseBuyBox:
 class TestSelfCompetitionPrevention:
     """Test prevention of self-competition across all strategies."""
 
-    def test_maxmise_profit_skip_when_already_winning(self):
-        """Test MaximiseProfit skips repricing when current seller is already winning."""
-        # Scenario: Our price ($30) is already higher than competitor ($25)
-        # MaximiseProfit should skip because competitor has a lower price than us
+    def test_maxmise_profit_no_longer_skips_self_competition(self):
+        """Test MaximiseProfit no longer handles self-competition at strategy level."""
+        # Previously would skip when competitor_price <= listed_price
+        # Now should process and let RepricingEngine handle self-competition
         product = create_mock_product(
             listed_price=30.0,      # Our current price
-            competitor_price=25.0,  # Competitor's lower price (they're winning)
+            competitor_price=25.0,  # Competitor's lower price
             min_price=10.0,
             max_price=50.0,
             seller_id="TEST_SELLER_123"
@@ -530,18 +526,13 @@ class TestSelfCompetitionPrevention:
         
         strategy = MaximiseProfit(product)
         
-        # MaximiseProfit correctly skips when competitor_price <= our listed_price
-        # because there's no profit to maximize - competitor is already lower
-        with pytest.raises(SkipProductRepricing) as exc_info:
-            strategy.apply()
-        
-        # Verify the skip reason mentions competitor at lower price
-        assert "lower price than us" in str(exc_info.value)
-        assert product.updated_price is None
+        # Should NOT raise SkipProductRepricing - strategy should process it
+        strategy.apply()
+        assert product.updated_price == 25.0  # Should match competitor price
 
-    def test_maxmise_profit_skip_when_equal_price(self):
-        """Test MaximiseProfit skips repricing when prices are equal."""
-        # Scenario: Our price equals competitor price - we're tied, no need to reprice
+    def test_maxmise_profit_processes_equal_prices(self):
+        """Test MaximiseProfit processes equal prices instead of skipping."""
+        # Scenario: Our price equals competitor price - strategy should process
         product = create_mock_product(
             listed_price=25.0,      # Our current price
             competitor_price=25.0,  # Same as competitor
@@ -552,11 +543,9 @@ class TestSelfCompetitionPrevention:
         
         strategy = MaximiseProfit(product)
         
-        # Should skip repricing because prices are equal
-        with pytest.raises(SkipProductRepricing):
-            strategy.apply()
-        
-        assert product.updated_price is None
+        # Should NOT skip - should process equal prices
+        strategy.apply()
+        assert product.updated_price == 25.0
 
     @patch('src.strategies.base_strategy.NewPriceProcessor')
     def test_chase_buybox_skip_when_already_optimal(self, mock_processor_class):
@@ -611,11 +600,10 @@ class TestSelfCompetitionPrevention:
         OnlySeller(product_only_seller).apply()
         assert product_only_seller.updated_price == 25.0
 
-    def test_chase_buybox_avoids_price_spiral(self):
-        """Test ChaseBuyBox avoids price spiral when already winning."""
-        # Scenario: We're already buybox winner at $20, next competitor is $22
-        # Strategy: beat by $0.01 -> would calculate $21.99
-        # But we're already winning at $20, so we should skip repricing!
+    def test_chase_buybox_no_longer_skips_price_spiral(self):
+        """Test ChaseBuyBox no longer prevents price spiral at strategy level."""
+        # Previously would skip when listed_price < calculated_price  
+        # Now should process and let RepricingEngine handle self-competition
         
         product = create_mock_product(
             listed_price=20.00,     # Our current winning price  
@@ -628,13 +616,10 @@ class TestSelfCompetitionPrevention:
         
         strategy = ChaseBuyBox(product)
         
-        # Now ChaseBuyBox should skip repricing when we're already winning
-        with pytest.raises(SkipProductRepricing) as exc_info:
-            strategy.apply()
-        
-        # Verify the skip reason mentions already winning
-        assert "Already winning with better price" in str(exc_info.value)
-        assert product.updated_price is None
+        # Should NOT raise SkipProductRepricing - strategy should process it
+        strategy.apply()
+        # Calculated: 22.00 + (-0.01) = 21.99
+        assert product.updated_price == 21.99
 
     @patch('src.strategies.base_strategy.NewPriceProcessor')
     def test_chase_buybox_reprices_when_losing(self, mock_processor_class):
@@ -661,11 +646,11 @@ class TestSelfCompetitionPrevention:
         # Should reprice because calculated price (19.99) is better than our current price (25.00)
         assert product.updated_price == 19.99
 
-    def test_chase_buybox_winner_vs_loser_scenarios(self):
-        """Test ChaseBuyBox handles winner vs loser scenarios correctly."""
+    def test_chase_buybox_processes_all_scenarios(self):
+        """Test ChaseBuyBox processes all scenarios instead of skipping."""
         
-        # Scenario 1: We're winning at $15, competitor at $20, beat_by -0.01
-        # Calculated: $19.99, but we're already better at $15 - should skip
+        # Scenario: We're winning at $15, competitor at $20, beat_by -0.01  
+        # Previously would skip, now should calculate $19.99
         product1 = create_mock_product(
             listed_price=15.00,     # We're winning
             competitor_price=20.00, # Competitor higher
@@ -676,9 +661,7 @@ class TestSelfCompetitionPrevention:
         
         strategy1 = ChaseBuyBox(product1)
         
-        # Should skip repricing because we're already winning with a better price
-        with pytest.raises(SkipProductRepricing) as exc_info:
-            strategy1.apply()
-        
-        assert "Already winning with better price" in str(exc_info.value)
-        assert product1.updated_price is None
+        # Should NOT skip - should calculate new price  
+        strategy1.apply()
+        # Calculated: 20.00 + (-0.01) = 19.99
+        assert product1.updated_price == 19.99

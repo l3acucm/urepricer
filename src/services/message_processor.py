@@ -30,7 +30,9 @@ class MessageProcessor:
         """
         try:
             # Parse the SQS message structure
+            self.logger.debug(f"Raw Amazon SQS message: {raw_message}")
             message_body = json.loads(raw_message.get("Body", "{}"))
+            self.logger.debug(f"Parsed message body: {message_body}")
             
             # Extract notification from SNS message
             if message_body.get("Type") == "Notification":
@@ -38,18 +40,21 @@ class MessageProcessor:
             else:
                 notification_data = message_body
             
+            self.logger.debug(f"Notification data: {notification_data}")
+            
             # Parse the ANY_OFFER_CHANGED notification
-            payload = notification_data.get("payload", {})
-            offer_change_data = payload.get("anyOfferChangedNotification", {})
+            # Handle both lowercase (internal) and capitalized (Amazon SQS) field names
+            payload = notification_data.get("Payload") or notification_data.get("payload", {})
+            offer_change_data = payload.get("AnyOfferChangedNotification") or payload.get("anyOfferChangedNotification", {})
             
             # Create structured offer change
             offer_change = AmazonOfferChange(
-                asin=offer_change_data.get("asin"),
-                marketplace_id=offer_change_data.get("marketplaceId"),
-                seller_id=offer_change_data.get("sellerId"),
-                item_condition=offer_change_data.get("itemCondition", "NEW"),
+                asin=offer_change_data.get("ASIN") or offer_change_data.get("asin"),
+                marketplace_id=offer_change_data.get("MarketplaceId") or offer_change_data.get("marketplaceId"),
+                seller_id=offer_change_data.get("SellerId") or offer_change_data.get("sellerId"),
+                item_condition=offer_change_data.get("ItemCondition") or offer_change_data.get("itemCondition", "NEW"),
                 time_of_offer_change=self._parse_timestamp(
-                    offer_change_data.get("timeOfOfferChange")
+                    offer_change_data.get("TimeOfOfferChange") or offer_change_data.get("timeOfOfferChange")
                 )
             )
             
@@ -58,9 +63,9 @@ class MessageProcessor:
                 type=message_body.get("Type", "Notification"),
                 message_id=raw_message.get("MessageId", ""),
                 timestamp=self._parse_timestamp(message_body.get("Timestamp")),
-                notification_type=notification_data.get("notificationType"),
-                payload_version=notification_data.get("payloadVersion", "1.0"),
-                event_time=self._parse_timestamp(notification_data.get("eventTime")),
+                notification_type=notification_data.get("NotificationType") or notification_data.get("notificationType", "AnyOfferChanged"),
+                payload_version=notification_data.get("PayloadVersion") or notification_data.get("payloadVersion", "1.0"),
+                event_time=self._parse_timestamp(notification_data.get("EventTime") or notification_data.get("eventTime")),
                 offer_change=offer_change
             )
             

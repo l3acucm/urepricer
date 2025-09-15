@@ -154,7 +154,7 @@ curl -X POST http://localhost:8000/walmart/webhook \
 Each example below triggers a different repricing strategy with manipulatable prices. These align with the 5 strategies populated by `populate_test_data.py`:
 
 #### 1. Strategy 1: LOWEST_PRICE Competition (Beat by $0.01)
-**Expected Result**: Our price will be set to $24.99 (competitor's lowest price $25.00 - $0.01)
+**Expected Result**: Our price will be set to $49.99 (competitor's lowest price $50.00 - $0.01)
 
 ```bash
 awslocal sqs send-message \
@@ -169,7 +169,8 @@ awslocal sqs send-message \
         "MarketplaceId": "ATVPDKIKX0DER",
         "ASIN": "B01234567890",
         "ItemCondition": "New",
-        "TimeOfOfferChange": "2025-01-01T00:00:00.000Z"
+        "TimeOfOfferChange": "2025-01-01T00:00:00.000Z",
+        "OfferChangeType": "External"
       },
       "Summary": {
         "NumberOfOffers": [
@@ -179,15 +180,15 @@ awslocal sqs send-message \
           {
             "Condition": "New",
             "FulfillmentChannel": "Amazon", 
-            "ListingPrice": {"Amount": 25.00, "CurrencyCode": "USD"},
-            "LandedPrice": {"Amount": 25.00, "CurrencyCode": "USD"}
+            "ListingPrice": {"Amount": 50.00, "CurrencyCode": "USD"},
+            "LandedPrice": {"Amount": 50.00, "CurrencyCode": "USD"}
           }
         ],
         "BuyBoxPrices": [
           {
             "Condition": "New",
-            "ListingPrice": {"Amount": 26.50, "CurrencyCode": "USD"},
-            "LandedPrice": {"Amount": 26.50, "CurrencyCode": "USD"}
+            "ListingPrice": {"Amount": 51.50, "CurrencyCode": "USD"},
+            "LandedPrice": {"Amount": 51.50, "CurrencyCode": "USD"}
           }
         ]
       },
@@ -195,14 +196,14 @@ awslocal sqs send-message \
         {
           "SellerId": "A2345678901234",
           "SubCondition": "New",
-          "ListingPrice": {"Amount": 25.00, "CurrencyCode": "USD"},
+          "ListingPrice": {"Amount": 50.00, "CurrencyCode": "USD"},
           "IsBuyBoxWinner": false,
           "FulfillmentChannel": "Amazon"
         },
         {
           "SellerId": "A3456789012345", 
           "SubCondition": "New",
-          "ListingPrice": {"Amount": 26.50, "CurrencyCode": "USD"},
+          "ListingPrice": {"Amount": 51.50, "CurrencyCode": "USD"},
           "IsBuyBoxWinner": true,
           "FulfillmentChannel": "Amazon"
         }

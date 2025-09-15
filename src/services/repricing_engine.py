@@ -497,26 +497,29 @@ class RepricingEngine:
     async def _set_competitor_info(self, product: Product, offer_data: ProcessedOfferData):
         """Set competitor information on product using offer data."""
         # Create a mock payload structure for SetCompetitorInfo
+        # Extract specific price arrays from raw_summary for SetCompetitorInfo
+        buybox_prices = []
+        lowest_prices = []
+        if offer_data.raw_summary:
+            buybox_prices = offer_data.raw_summary.get('BuyBoxPrices', [])
+            lowest_prices = offer_data.raw_summary.get('LowestPrices', [])
+        
         payload = {
             'Summary.TotalOfferCount': offer_data.total_offers or 1,
             'Offers': offer_data.raw_offers or [],
-            'Summary.BuyBoxPrices': offer_data.raw_summary or [],
-            'Summary.LowestPrices': offer_data.raw_summary or []
+            'Summary.BuyBoxPrices': buybox_prices,
+            'Summary.LowestPrices': lowest_prices
         }
         
         # Set basic competitor price from offer data
         if offer_data.competitor_price:
             product.competitor_price = offer_data.competitor_price
             product.no_of_offers = offer_data.total_offers or 1
+            self.logger.debug(f"Set competitor price from offer data: {product.competitor_price}")
         
-        # Use SetCompetitorInfo for more detailed analysis if we have raw data
-        if offer_data.raw_offers or offer_data.raw_summary:
-            try:
-                competitor_analyzer = SetCompetitorInfo(product, payload)
-                competitor_analyzer.apply()
-            except Exception as e:
-                self.logger.warning(f"Competitor analysis failed: {str(e)}")
-                # Fall back to basic competitor price from offer_data
+        # Skip SetCompetitorInfo for SP-API format - we already extract competitor prices correctly
+        # The legacy SetCompetitorInfo expects different data structure and overrides our values
+        self.logger.debug(f"Skipping SetCompetitorInfo - using extracted competitor price: {product.competitor_price}")
 
     async def _find_sku_for_asin_seller(self, asin: str, seller_id: str) -> Optional[str]:
         """

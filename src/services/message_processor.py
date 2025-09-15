@@ -299,12 +299,36 @@ class MessageProcessor:
         return None
     
     def _extract_target_seller(self, offers_data: List[Dict[str, Any]], asin: str) -> str:
-        """Extract target seller ID or provide fallback."""
-        # In a real scenario, this would be the seller we're repricing for
-        # For testing, we'll use the first non-buybox seller or a default
-        for offer in offers_data:
-            if not offer.get("IsBuyBoxWinner"):
-                return offer.get("SellerId", "A1234567890123")
+        """Extract target seller ID from our product database for this ASIN."""
+        # Look up the ASIN in Redis to find our seller for this product
+        try:
+            import redis
+            from core.config import get_settings
+            
+            settings = get_settings()
+            
+            # Create synchronous Redis connection for this lookup
+            sync_redis = redis.Redis(
+                host=settings.redis_host,
+                port=settings.redis_port,
+                decode_responses=True
+            )
+            
+            # Look up the product by ASIN key
+            asin_key = f"ASIN_{asin}"
+            # Redis HGETALL returns a dict, we need to find our seller
+            product_data = sync_redis.hgetall(asin_key)
+            
+            if product_data:
+                # Look for our seller in the product data
+                for field, data_str in product_data.items():
+                    if ":" in field:  # Format is "seller_id:sku"
+                        seller_id = field.split(":")[0]
+                        return seller_id
+            
+            sync_redis.close()
+        except Exception as e:
+            self.logger.warning(f"Could not lookup seller for ASIN {asin}: {e}")
         
         # Fallback to default test seller
         return "A1234567890123"

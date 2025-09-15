@@ -1,5 +1,6 @@
 """SQS Consumer for Amazon notifications."""
 
+import asyncio
 import json
 from typing import Dict, Any
 import boto3
@@ -19,7 +20,7 @@ class SQSConsumer:
         self.settings = get_settings()
         self.sqs_client = None
         self.running = False
-        self.queue_urls = {settings.sqs_queue_url_any_offer, settings.sqs_queue_url_feed_processing}
+        self.queue_urls = {settings.sqs_queue_url_any_offer}
         
     async def initialize(self):
         """Initialize SQS client and discover queues."""
@@ -146,14 +147,29 @@ class SQSConsumer:
             # Parse the notification from the SQS message body
             message_body = json.loads(sqs_message.get('Body', '{}'))
             
-            # Extract ASIN and Seller info for validation
+            # Extract ASIN from SP-API format (OfferChangeTrigger only)
             payload = message_body.get('Payload', {})
-            any_offer_changed = payload.get('AnyOfferChangedNotification', {})
+            offer_change_trigger = payload.get('OfferChangeTrigger', {})
+            asin = offer_change_trigger.get('ASIN')
             
-            asin = any_offer_changed.get('ASIN')
-            seller_id = any_offer_changed.get('SellerId')
+            # Extract seller_id from offers or use default for processing
+            seller_id = None
+            offers = payload.get('Offers', [])
+            if offers:
+                # Use first non-buybox seller as target (message processor will handle this properly)
+                for offer in offers:
+                    if not offer.get('IsBuyBoxWinner', False):
+                        seller_id = offer.get('SellerId')
+                        break
+                # If all are buybox winners, use the first one
+                if not seller_id:
+                    seller_id = offers[0].get('SellerId')
             
-            if asin and seller_id:
+            # Final fallback to default test seller for QUICKSTART examples
+            if not seller_id:
+                seller_id = "A1234567890123"
+            
+            if asin:
                 logger.info(f"Processing Amazon notification for ASIN: {asin}, Seller: {seller_id}")
                 
                 # Process the message using the orchestrator (pass the full SQS message)
@@ -180,7 +196,7 @@ class SQSConsumer:
                         }
                     )
             else:
-                logger.warning("Amazon notification missing ASIN or SellerId")
+                logger.warning("Amazon notification missing ASIN in OfferChangeTrigger (SP-API format required)")
                 
         except Exception as e:
             logger.error(f"Error processing Amazon notification: {e}")

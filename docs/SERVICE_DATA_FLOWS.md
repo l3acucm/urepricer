@@ -1,599 +1,455 @@
 # URepricer System - Service and Data Flows Documentation
 
-This document provides a comprehensive overview of the key business processes in the URepricer system, including service flows, data movements, and architectural patterns.
+This document provides a comprehensive overview of the repricing system architecture, data flows, and processing pipeline with current implementation details.
 
-## System Overview
+## System Architecture Overview
 
-The URepricer system is a FastAPI-based Amazon marketplace repricing service that processes competitor data, calculates optimal prices using various strategies, and manages price updates through Amazon's SP-API. The system uses PostgreSQL for persistent storage, Redis for caching, and integrates with AWS SQS for message queuing.
+The URepricer system is a FastAPI-based Amazon marketplace repricing service that processes competitor data from multiple sources, makes intelligent repricing decisions, and calculates optimal prices using configurable strategies.
 
-## Architecture Components
+### Key Components
 
-### Core Services
-- **FastAPI Application** (`src/main.py`) - REST API endpoints
-- **Strategy Engine** (`src/strategies/`) - Pricing strategy implementations  
-- **Price Processor** (`src/strategies/new_price_processor.py`) - Price validation and rules
-- **Competitor Analysis** (`src/tasks/set_competitor_info.py`) - Competition data processing
-- **Product Service** (`src/services/update_product_service.py`) - Amazon API integration
-
-### Data Storage
-- **PostgreSQL** - Persistent storage for accounts, listings, pricing history
-- **Redis** - Cache for repriced products, temporary data storage
-- **SQS** - Message queuing for price change notifications
-
-### External Integrations  
-- **Amazon SP-API** - Product data retrieval and price updates
-- **AWS SQS** - Price change notifications (ANY_OFFER_CHANGED)
-- **Kafka** - Optional external notifications
+- **FastAPI Application** - REST API and webhook endpoints
+- **Message Processing** - Amazon SQS and Walmart webhook processing  
+- **Repricing Engine** - Decision making and self-competition prevention
+- **Strategy Engine** - Multiple pricing strategies (ChaseBuyBox, MaximiseProfit, OnlySeller)
+- **Redis Cache** - Product data, strategies, and calculated prices storage
+- **LocalStack** - AWS services emulation for development
 
 ---
 
-## 1. Price Change Processing Flow
+## Core Data Flow Architecture
 
-**Description**: Core flow triggered by Amazon ANY_OFFER_CHANGED notifications when competitor prices change.
+```mermaid
+graph TB
+    %% External Data Sources
+    subgraph "External Sources"
+        SQS[Amazon SQS<br/>ANY_OFFER_CHANGED]
+        WH[Walmart Webhooks<br/>Buy Box Changes]
+    end
+    
+    %% Message Processing Layer
+    subgraph "Message Processing"
+        SQSC[SQS Consumer<br/>message_processor.py]
+        MP[Message Processor<br/>SP-API Compliant]
+    end
+    
+    %% Core Processing Engine
+    subgraph "Repricing Engine"
+        RO[Repricing Orchestrator<br/>repricing_orchestrator.py]
+        RE[Repricing Engine<br/>repricing_engine.py]
+        SC["Self-Competition Check<br/>_is_self_competing()"]
+    end
+    
+    %% Strategy Layer
+    subgraph "Strategy Engine"
+        CB[ChaseBuyBox<br/>WIN_BUYBOX]
+        MP_STRAT[MaximiseProfit<br/>MAXIMISE_PROFIT]
+        OS[OnlySeller<br/>ONLY_SELLER]
+    end
+    
+    %% Data Storage
+    subgraph "Data Storage"
+        REDIS[(Redis Cache)]
+        PROD[Product Data<br/>ASIN_*]
+        STRAT[Strategies<br/>strategy.*]
+        CALC[Calculated Prices<br/>CALCULATED_PRICES:*]
+    end
+    
+    %% API Layer
+    subgraph "API Layer"
+        API[FastAPI App<br/>main.py]
+        WE[Webhook Endpoints<br/>webhook_router.py]
+    end
+    
+    %% Data Flow Connections
+    SQS --> SQSC
+    WH --> WE
+    WE --> MP
+    SQSC --> MP
+    MP --> RO
+    RO --> RE
+    RE --> SC
+    SC --> CB
+    SC --> MP_STRAT
+    SC --> OS
+    
+    %% Redis Data Structure
+    REDIS --> PROD
+    REDIS --> STRAT
+    REDIS --> CALC
+    
+    %% Redis Read Operations for Decision Making
+    RE -->|1. get_product_data_by_asin| PROD
+    RE -->|2. get_stock_quantity| PROD
+    RE -->|3. get_strategy_data_by_strategy_id| STRAT
+    
+    %% Redis Read Operations for Strategy Execution
+    CB -->|Read strategy config| STRAT
+    MP_STRAT -->|Read strategy config| STRAT
+    OS -->|Read strategy config| STRAT
+    
+    %% Redis Write Operations
+    CB -.->|Save calculated price| CALC
+    MP_STRAT -.->|Save calculated price| CALC
+    OS -.->|Save calculated price| CALC
+    
+    %% API to Engine
+    API --> RO
+```
 
-### Trigger
-- Amazon SQS message received on `SQS_QUEUE_URL_ANY_OFFER` queue
-- Message contains ASIN, marketplace, and competitor offer changes
-- Triggered by ANY_OFFER_CHANGED subscription events
+---
 
-### Service Flow
+## 1. Amazon SQS Message Processing Flow
+
+### Input: SP-API Compliant ANY_OFFER_CHANGED Notification
+
+```json
+{
+  "NotificationType": "ANY_OFFER_CHANGED",
+  "Payload": {
+    "OfferChangeTrigger": {
+      "MarketplaceId": "ATVPDKIKX0DER",
+      "ASIN": "B01234567890",
+      "ItemCondition": "New",
+      "TimeOfOfferChange": "2025-01-01T00:00:00.000Z"
+    },
+    "Summary": {
+      "LowestPrices": [
+        {
+          "Condition": "New",
+          "FulfillmentChannel": "Amazon",
+          "ListingPrice": {"Amount": 25.00, "CurrencyCode": "USD"}
+        }
+      ],
+      "BuyBoxPrices": [
+        {
+          "Condition": "New", 
+          "ListingPrice": {"Amount": 26.50, "CurrencyCode": "USD"}
+        }
+      ]
+    },
+    "Offers": [
+      {
+        "SellerId": "A2345678901234",
+        "ListingPrice": {"Amount": 25.00, "CurrencyCode": "USD"},
+        "IsBuyBoxWinner": false
+      }
+    ]
+  }
+}
+```
+
+### Processing Pipeline
+
+```mermaid
+sequenceDiagram
+    participant SQS as Amazon SQS
+    participant SC as SQS Consumer
+    participant MP as Message Processor
+    participant RO as Repricing Orchestrator
+    participant RE as Repricing Engine
+    participant S as Strategy
+    participant R as Redis
+    
+    SQS->>SC: ANY_OFFER_CHANGED Message
+    SC->>MP: process_amazon_sqs_message()
+    
+    Note over MP: Extract SP-API Data
+    MP->>MP: Extract OfferChangeTrigger
+    MP->>MP: Extract Summary.LowestPrices
+    MP->>MP: Extract Summary.BuyBoxPrices
+    MP->>MP: Extract Offers.IsBuyBoxWinner
+    
+    MP->>RO: ProcessedOfferData
+    RO->>RE: make_repricing_decision()
+    
+    Note over RE: Decision Making
+    RE->>R: get_product_data(ASIN)
+    R-->>RE: Product data
+    RE->>RE: _is_self_competing()
+    RE-->>RO: RepricingDecision
+    
+    alt Decision: should_reprice = true
+        RO->>RE: calculate_new_price()
+        RE->>R: get_strategy_data()
+        R-->>RE: Strategy config
+        RE->>S: apply_strategy()
+        S-->>RE: CalculatedPrice
+        RE->>R: save_calculated_price()
+        RE-->>RO: CalculatedPrice
+    else Decision: should_reprice = false
+        RE-->>RO: None (skip repricing)
+    end
+```
+
+### Data Extraction Methods
+
+**MessageProcessor._extract_competitor_price()**
+- Reads `Summary.LowestPrices[]` for condition match
+- Prefers `LandedPrice.Amount` over `ListingPrice.Amount`
+- Falls back to `Summary.BuyBoxPrices[]` if needed
+
+**MessageProcessor._extract_buybox_winner()**
+- Scans `Offers[]` for `IsBuyBoxWinner: true`
+- Returns winning `SellerId`
+
+**MessageProcessor._extract_total_offers()**
+- Sums `Summary.NumberOfOffers[].OfferCount`
+
+---
+
+## 2. Walmart Webhook Processing Flow
+
+### Input: Walmart Buy Box Change Webhook
+
+```json
+{
+  "eventType": "buybox_changed",
+  "itemId": "WM123456789",
+  "sellerId": "WM12345678",
+  "currentBuyboxPrice": 50.00,
+  "currentBuyboxWinner": "COMPETITOR123",
+  "offers": [
+    {"sellerId": "COMPETITOR123", "price": 50.00},
+    {"sellerId": "WM12345678", "price": 999.99}
+  ]
+}
+```
+
+### Processing Flow
+
+```mermaid
+graph LR
+    WH[Walmart Webhook] --> WE[Webhook Endpoint]
+    WE --> MP[Message Processor]
+    MP --> RO[Repricing Orchestrator]
+    RO --> RE[Repricing Engine]
+    RE --> S[Strategy Application]
+    S --> R[(Redis)]
+    
+    style WH fill:#e8f5e8
+    style R fill:#fff3e0
+```
+
+---
+
+## 3. Repricing Decision Engine
+
+### Self-Competition Prevention
+
+The `RepricingEngine._is_self_competing()` method prevents sellers from competing against themselves:
+
+```python
+def _is_self_competing(self, offer_data: ProcessedOfferData, our_seller_id: str) -> bool:
+    # Check if we are the buybox winner
+    if offer_data.buybox_winner and offer_data.buybox_winner == our_seller_id:
+        return True
+    
+    # Check if we appear in offers list as only competitor
+    if offer_data.raw_offers:
+        our_offers_count = 0
+        total_valid_offers = 0
+        
+        for offer in offer_data.raw_offers:
+            offer_seller_id = offer.get('SellerId') or offer.get('seller_id')
+            if offer_seller_id:
+                total_valid_offers += 1
+                if offer_seller_id == our_seller_id:
+                    our_offers_count += 1
+        
+        # If we are the only seller, we're self-competing
+        if total_valid_offers > 0 and our_offers_count == total_valid_offers:
+            return True
+    
+    return False
+```
+
+### Redis Data Reads for Decision Making
+
+The repricing engine makes several Redis read operations to determine if repricing should occur:
+
+```python
+# 1. Read product data from Redis
+product_data = await self.redis.get_product_data(asin, seller_id, sku)
+# Redis Key: ASIN_{asin}, Field: {seller_id}:{sku}
+# Returns: product configuration, pricing bounds, status
+
+# 2. Read stock quantity 
+stock_quantity = await self.redis.get_stock_quantity(asin, seller_id, sku)
+# Used to check if product has inventory
+
+# 3. Read strategy configuration (during price calculation)
+strategy_data = await self.redis.get_strategy_data(strategy_id)
+# Redis Key: strategy.{strategy_id}
+# Returns: compete_with, beat_by, price_rules
+```
+
+### Decision Matrix
+
+| Redis Data Check | Decision | Redis Key/Field | Reason |
+|------------------|----------|-----------------|---------|
+| `get_product_data()` returns `None` | `should_reprice: false` | `ASIN_{asin}:{seller_id}:{sku}` | Product not in catalog |
+| Self-competition detected | `should_reprice: false` | N/A (logic-based) | Prevent price spirals |
+| `get_stock_quantity()` ≤ 0 | `should_reprice: false` | Product data `quantity` field | No inventory to sell |
+| Product `status` != 'Active' | `should_reprice: false` | Product data `status` field | Product disabled |
+| All checks pass | `should_reprice: true` | All data valid | Eligible for repricing |
+
+---
+
+## 4. Strategy Engine Architecture
+
+### Strategy Selection and Execution
 
 ```mermaid
 graph TD
-    A[SQS ANY_OFFER_CHANGED] --> B[SQS Consumer]
-    B --> C[Product Lookup]
-    C --> D{Product in Catalog?}
-    D -->|No| E[Skip - Not Our Product]
-    D -->|Yes| F[Fetch Competitor Data]
-    F --> G[SetCompetitorInfo.apply]
-    G --> H[Strategy Selection]
-    H --> I[Price Calculation]
-    I --> J[Price Validation]
-    J --> K[Cache in Redis]
-    K --> L[Queue for Amazon API]
+    RD[RepricingDecision] --> SE[Strategy Engine]
+    SE --> R1{Strategy ID?}
+    
+    R1 -->|1| CB[ChaseBuyBox<br/>LOWEST_PRICE<br/>Beat by -$0.01]
+    R1 -->|2| CB2[ChaseBuyBox<br/>MATCH_BUYBOX<br/>Beat by -$0.01]
+    R1 -->|3| CB3[ChaseBuyBox<br/>FBA_LOWEST<br/>Beat by -$0.05]
+    R1 -->|4| MP[MaximiseProfit<br/>LOWEST_PRICE<br/>Match exactly]
+    R1 -->|5| CB4[ChaseBuyBox<br/>MATCH_BUYBOX<br/>Beat by -$0.10]
+    
+    CB --> PC[Price Calculation]
+    CB2 --> PC
+    CB3 --> PC
+    MP --> PC
+    CB4 --> PC
+    
+    PC --> PV[Price Validation]
+    PV --> CP[CalculatedPrice]
+    CP --> REDIS[(Redis Storage)]
 ```
 
-### Data Flow
+### Strategy Configurations (from populate_test_data.py)
 
-1. **SQS Message Reception**
-   - **Input**: JSON message with ASIN, marketplace, seller info
-   - **Service**: `any_offer_consumer.py` (from test references)
-   - **Processing**: Parse message, validate ASIN
-
-2. **Product Catalog Check**
-   - **Service**: `ProductListing` model query
-   - **Storage**: PostgreSQL `product_listings` table
-   - **Query**: `SELECT * FROM product_listings WHERE asin = ? AND seller_id = ?`
-
-3. **Competitor Data Processing**
-   - **Service**: `SetCompetitorInfo` class
-   - **Input**: Amazon SP-API payload with competitor offers
-   - **Processing**: 
-     - Filter offers by condition and fulfillment type
-     - Set competitor prices for standard and B2B tiers
-     - Determine buybox winner status
-
-4. **Strategy Application**
-   - **Service**: `ApplyStrategyService`
-   - **Logic**: 
-     ```python
-     if product.no_of_offers == 1:
-         strategy_type = 'ONLY_SELLER'
-     elif not product.is_b2b and product.is_seller_buybox_winner:
-         strategy_type = 'MAXIMISE_PROFIT'  
-     else:
-         strategy_type = 'WIN_BUYBOX'
-     ```
-
-5. **Price Calculation**
-   - **Service**: Strategy classes (`ChaseBuyBox`, `MaximiseProfit`, `OnlySeller`)
-   - **Processing**: Calculate new price using `eval(f"{competitor_price} + {beat_by}")`
-   - **Validation**: `NewPriceProcessor.process_price()`
-
-6. **Redis Caching**
-   - **Service**: `AmazonProductPrice._save_data_in_redis()`
-   - **Key Pattern**: `{seller_id}_repriced_products`  
-   - **Data Structure**: Hash with SKU as field, pricing data as value
-   - **Content**:
-     ```json
-     {
-       "asin": "B08F2QH222",
-       "sku": "SKU123", 
-       "seller_id": "A1B2C3D4E5F6G7",
-       "Standard": {
-         "updated_price": 15.99,
-         "listed_price": 16.99
-       }
-     }
-     ```
-
-### Key Components
-- **SetCompetitorInfo**: Competitor analysis and price extraction
-- **ApplyStrategyService**: Strategy selection logic
-- **ChaseBuyBox/MaximiseProfit/OnlySeller**: Strategy implementations
-- **NewPriceProcessor**: Price validation and rule application
-- **AmazonProductPrice**: Redis caching and API preparation
-
-### Storage
-- **PostgreSQL**: Product listings, user accounts, competitor history
-- **Redis**: Cached repricing data for bulk Amazon API calls
-- **SQS**: Message queuing for notifications
-
-### Output
-- New calculated price cached in Redis
-- Product updated with new pricing strategy
-- Ready for bulk submission to Amazon SP-API
+| Strategy ID | Compete With | Beat By | Min Price Rule | Max Price Rule |
+|-------------|--------------|---------|----------------|----------------|
+| 1 | LOWEST_PRICE | -$0.01 | JUMP_TO_MIN | JUMP_TO_MAX |
+| 2 | MATCH_BUYBOX | -$0.01 | JUMP_TO_MIN | JUMP_TO_MAX |
+| 3 | FBA_LOWEST | -$0.05 | JUMP_TO_MIN | JUMP_TO_MAX |
+| 4 | LOWEST_PRICE | $0.00 | DO_NOTHING | DO_NOTHING |
+| 5 | MATCH_BUYBOX | -$0.10 | DEFAULT_PRICE | DEFAULT_PRICE |
 
 ---
 
-## 2. Bulk Price Update Process (Amazon API Submission)
+## 5. Redis Data Structure
 
-**Description**: Batch process that sends accumulated price changes to Amazon SP-API.
+### Product Data Schema
+**Key**: `ASIN_{asin}`  
+**Type**: Hash  
+**Fields**: `{seller_id}:{sku}` → JSON product data
 
-### Trigger  
-- Scheduled cron job (typically every 5-15 minutes)
-- Manual API trigger via `/repricing/bulk-update` endpoint
-
-### Service Flow
-
-```mermaid
-graph TD
-    A[Cron Scheduler] --> B[Bulk Update Service]
-    B --> C[Redis Data Retrieval]
-    C --> D[Group by Seller]
-    D --> E[Amazon SP-API Feed Creation]
-    E --> F[Submit Price Feed]
-    F --> G[Feed Status Tracking]
-    G --> H[Redis Cleanup]
-    H --> I[Update Database]
+```json
+{
+  "asin": "B01234567890",
+  "sku": "A12-QUICKSTART01", 
+  "seller_id": "A1234567890123",
+  "listed_price": 29.99,
+  "min_price": 20.00,
+  "max_price": 50.00,
+  "strategy_id": "1",
+  "compete_with": "LOWEST_PRICE",
+  "item_condition": "New",
+  "status": "Active"
+}
 ```
 
-### Data Flow
+### Strategy Configuration Schema
+**Key**: `strategy.{strategy_id}`  
+**Type**: Hash
 
-1. **Redis Data Collection**
-   - **Keys**: `{seller_id}_repriced_products` 
-   - **Service**: Redis client `HGETALL` operations
-   - **Processing**: Collect all pending price updates per seller
+```json
+{
+  "compete_with": "LOWEST_PRICE",
+  "beat_by": "-0.01", 
+  "min_price_rule": "JUMP_TO_MIN",
+  "max_price_rule": "JUMP_TO_MAX"
+}
+```
 
-2. **Feed Preparation**
-   - **Service**: Amazon SP-API Feed API
-   - **Format**: XML feed with price updates
-   - **Structure**:
-     ```xml
-     <AmazonEnvelope>
-       <Message>
-         <MessageID>1</MessageID>
-         <OperationType>Update</OperationType>
-         <Price>
-           <SKU>SKU123</SKU>
-           <StandardPrice currency="USD">15.99</StandardPrice>
-         </Price>
-       </Message>
-     </AmazonEnvelope>
-     ```
+### Calculated Prices Schema
+**Key**: `CALCULATED_PRICES:{seller_id}`  
+**Type**: Hash  
+**Fields**: `{sku}` → JSON calculated price data
 
-3. **Feed Submission**
-   - **API**: Amazon SP-API Feeds endpoint
-   - **Method**: POST with multipart/form-data
-   - **Response**: Feed submission ID for tracking
-
-4. **Status Tracking**  
-   - **Storage**: Database feed tracking table
-   - **Monitoring**: Periodic status checks via SP-API
-   - **States**: SUBMITTED → IN_PROGRESS → DONE/CANCELLED
-
-5. **Cleanup**
-   - **Redis**: Delete processed entries from `{seller_id}_repriced_products`
-   - **Database**: Update `last_price_update` timestamp
-
-### Key Components
-- **Feed Builder**: XML generation for Amazon SP-API
-- **SP-API Client**: Amazon marketplace API integration  
-- **Feed Status Monitor**: Async tracking of feed processing
-
-### Storage
-- **Redis**: `{seller_id}_repriced_products` - removed after processing
-- **PostgreSQL**: Feed tracking, submission history
-
-### Output
-- Price updates submitted to Amazon
-- Database updated with submission status
-- Redis cleared of processed entries
+```json
+{
+  "new_price": 24.99,
+  "old_price": 29.99,
+  "strategy_used": "ChaseBuyBox",
+  "strategy_id": "1",
+  "competitor_price": 25.00,
+  "asin": "B01234567890",
+  "calculated_at": "2025-01-01T12:00:00.000Z",
+  "processing_time_ms": 45.2
+}
+```
 
 ---
 
-## 3. User Account and Credentials Management
+## 6. Error Handling and Edge Cases
 
-**Description**: User onboarding, Amazon SP-API credential validation, and account management.
+### Message Processing Errors
+- **Invalid JSON**: Log warning, skip message
+- **Missing required fields**: Use fallback values or skip
+- **Redis connection errors**: Retry with exponential backoff
+- **Strategy errors**: Log error, skip repricing
 
-### Trigger
-- New user registration via `/accounts/register` endpoint
-- Credential updates via `/accounts/{seller_id}/credentials` endpoint
-- Periodic credential validation (cron job)
+### Repricing Decision Errors  
+- **Product not found**: Return `should_reprice: false`
+- **Strategy not found**: Log error, use default
+- **Price bounds violation**: Log warning, return `None`
+- **Self-competition detected**: Return `should_reprice: false`
 
-### Service Flow
-
-```mermaid
-graph TD
-    A[User Registration] --> B[Credential Validation]
-    B --> C[Amazon SP-API Test]
-    C --> D{Credentials Valid?}
-    D -->|Yes| E[Create UserAccount]
-    D -->|No| F[Return Error]
-    E --> G[Setup Notifications]
-    G --> H[Enable Repricing]
-```
-
-### Data Flow
-
-1. **Registration Request**
-   - **Input**: Seller ID, marketplace, refresh token
-   - **Validation**: Required fields, marketplace type
-   - **Schema**: `AccountCreate` Pydantic model
-
-2. **Credential Validation**
-   - **Service**: Amazon SP-API authentication
-   - **Test Call**: GetMarketplaceParticipations or similar
-   - **Storage**: Temporary credential validation
-
-3. **Account Creation**
-   - **Service**: `UserAccount` model creation
-   - **Database**: Insert into `user_accounts` table
-   - **Fields**:
-     ```sql
-     INSERT INTO user_accounts (
-       user_id, seller_id, marketplace_type,
-       refresh_token, enabled, repricer_enabled
-     ) VALUES (?, ?, ?, ?, TRUE, TRUE)
-     ```
-
-4. **Notification Setup**
-   - **Service**: Amazon SP-API Notifications
-   - **Subscriptions**: 
-     - ANY_OFFER_CHANGED for price monitoring
-     - FEED_PROCESSING_FINISHED for feed status
-   - **Storage**: Subscription IDs in user account
-
-5. **Price Reset Configuration**
-   - **Service**: Optional `PriceReset` configuration
-   - **Storage**: `price_resets` table with time intervals
-
-### Key Components
-- **UserAccount**: SQLAlchemy model for account data
-- **SP-API Client**: Credential validation and API testing
-- **Notification Manager**: Subscription setup for SQS events
-
-### Storage
-- **PostgreSQL**: 
-  - `user_accounts` table - account information
-  - `price_resets` table - scheduled price management
-- **Redis**: 
-  - `account.{seller_id}` - cached account settings
-
-### Output
-- Validated user account with active credentials  
-- SQS notification subscriptions established
-- Repricing enabled for user's products
+### Strategy Execution Errors
+- **Competitor price missing**: Raise `SkipProductRepricing`
+- **Price calculation error**: Log error, raise exception
+- **Redis save failure**: Log error, return `False`
 
 ---
 
-## 4. Catalog Update Process
-
-**Description**: Adding and updating product listings in the system catalog.
-
-### Trigger
-- Manual product import via `/listings/import` endpoint
-- Automatic sync with Amazon SP-API inventory
-- CSV upload via `/listings/bulk-import` endpoint
-
-### Service Flow
-
-```mermaid
-graph TD
-    A[Product Data Source] --> B[Data Validation]
-    B --> C[ASIN Lookup]
-    C --> D[Price Range Validation]
-    D --> E[Strategy Assignment]
-    E --> F[Database Upsert]
-    F --> G[Redis Cache Update]
-```
-
-### Data Flow
-
-1. **Product Data Input**
-   - **Sources**: CSV upload, API call, Amazon inventory sync
-   - **Schema**: `ProductListingCreate` validation
-   - **Required Fields**: ASIN, SKU, seller_id, marketplace_type
-
-2. **Product Validation**
-   - **Service**: Amazon SP-API Product Lookup
-   - **Verification**: ASIN exists, seller has listing
-   - **Enrichment**: Product title, condition, category
-
-3. **Price Configuration**
-   - **Input**: Min price, max price, default price
-   - **Validation**: Min < Max, positive values
-   - **Defaults**: System-wide min/max if not provided
-
-4. **Strategy Assignment**
-   - **Default**: LOWEST_PRICE competition
-   - **Customization**: Per-product strategy override
-   - **Validation**: Strategy exists and is enabled
-
-5. **Database Storage**
-   - **Service**: `ProductListing` model upsert
-   - **Operation**: 
-     ```sql
-     INSERT INTO product_listings (asin, sku, seller_id, ...)
-     ON CONFLICT (asin, seller_id) DO UPDATE SET ...
-     ```
-
-6. **Cache Initialization**
-   - **Redis Key**: `{asin}:{seller_id}` 
-   - **Data**: Basic product info for fast lookup
-   - **TTL**: 24 hours for automatic refresh
-
-### Key Components
-- **ProductListing**: SQLAlchemy model for product data
-- **Product Validator**: Amazon SP-API integration for verification
-- **Strategy Assigner**: Default strategy logic
-
-### Storage
-- **PostgreSQL**: `product_listings` table - permanent product catalog
-- **Redis**: `{asin}:{seller_id}` - cached product lookups
-
-### Output
-- Product added to active repricing catalog
-- Ready for competitor monitoring and price calculations
-- Available for strategy application
-
----
-
-## 5. Price Reset Process
-
-**Description**: Scheduled price resets during specified time intervals (e.g., overnight).
-
-### Trigger
-- Scheduled cron job based on `PriceReset.reset_time`
-- Manual trigger via `/repricing/price-reset/{seller_id}` endpoint
-- Time-based automation: check every hour if reset should activate
-
-### Service Flow  
-
-```mermaid
-graph TD
-    A[Time Check] --> B{Reset Time?}
-    B -->|Yes| C[Activate Price Reset]
-    B -->|No| D[Check Resume Time]
-    D -->|Yes| E[Resume Normal Pricing]
-    D -->|No| F[Continue Current State]
-    C --> G[Set Prices to Default/Max]
-    E --> H[Resume Strategy Pricing]
-```
-
-### Data Flow
-
-1. **Time Validation**
-   - **Service**: `PriceResetService.is_outside_interval()`
-   - **Logic**: Check current hour against reset/resume times
-   - **Handling**: Supports midnight crossing intervals
-
-2. **Reset Activation**
-   - **Query**: Active users with price reset enabled
-   - **Processing**: 
-     ```python
-     process_redis_data("process_key_for_listed_price", 
-                       [seller_id], "trigger_price_reset_time")
-     ```
-
-3. **Price Calculation**
-   - **Logic**: Use max_price if available, otherwise calculated default
-   - **Formula**: `min_price * 1.15` if max_price not set
-   - **Validation**: Ensure price is within bounds
-
-4. **Redis Update**
-   - **Key Pattern**: `{asin}:{seller_id}_test`
-   - **Value**: Reset price value  
-   - **Processing**: Same as normal price update flow
-
-5. **Resume Processing**
-   - **Trigger**: When current time hits `resume_time`
-   - **Action**: Remove reset state, restore normal strategy pricing
-   - **Data**: Clear temporary reset flags
-
-### Key Components
-- **PriceResetService**: Time interval logic and reset coordination
-- **Redis Processing**: Bulk price reset operations
-- **Time Zone Handling**: Marketplace-specific time zones
-
-### Storage
-- **PostgreSQL**: 
-  - `price_resets` table - reset configuration
-  - `user_accounts.price_reset_id` - association
-- **Redis**: 
-  - `{asin}:{seller_id}_test` - temporary reset prices
-  - Normal pricing keys for resume state
-
-### Output
-- Prices set to maximum/default during reset period
-- Automatic resume to competitive pricing
-- User accounts maintain reset state tracking
-
----
-
-## 6. Competitor Analysis Process
-
-**Description**: Processing Amazon marketplace data to identify competitors and extract pricing information.
-
-### Trigger
-- ANY_OFFER_CHANGED SQS messages
-- Manual competitor refresh via API
-- Scheduled competitor data updates (hourly)
-
-### Service Flow
-
-```mermaid
-graph TD
-    A[SP-API Data] --> B[Offer Filtering]
-    B --> C[Competition Type Check]
-    C --> D[Price Extraction]
-    D --> E[Seller Validation]
-    E --> F[Tier Processing]
-    F --> G[Product Update]
-```
-
-### Data Flow
-
-1. **Raw Competitor Data**
-   - **Source**: Amazon SP-API GetCompetitivePricing or Offers API
-   - **Structure**: JSON with offers array, summary data
-   - **Content**: Seller IDs, prices, conditions, fulfillment types
-
-2. **Offer Filtering**
-   - **Service**: `SetCompetitorInfo._filter_compete_with_offers()`
-   - **Strategies**:
-     - **LOWEST_FBA_PRICE**: FBA offers matching product condition
-     - **LOWEST_PRICE**: All offers sorted by price  
-     - **MATCH_BUYBOX**: Current buybox winner
-   - **Processing**: Filter by condition, fulfillment, sort by price
-
-3. **Competitor Validation**
-   - **Check**: Exclude own seller ID from competition
-   - **Fallback**: Use second-lowest if seller is lowest
-   - **Exception**: Skip if no valid competitors found
-
-4. **B2B Tier Processing**
-   - **Data**: Quantity tiers from API response
-   - **Matching**: Map competitor tiers to product tiers
-   - **Update**: Set competitor prices per tier
-
-5. **Product State Update**
-   - **Fields**: `competitor_price`, `is_seller_buybox_winner`
-   - **Validation**: Price > 0, seller ID format
-   - **Storage**: In-memory product object for strategy processing
-
-### Key Components
-- **SetCompetitorInfo**: Main competitor analysis logic
-- **Offer Filtering**: Strategy-specific competitor selection
-- **B2B Tier Matching**: Multi-tier pricing support
-
-### Storage
-- **Memory**: Product object during processing
-- **PostgreSQL**: `competitor_data` table for historical tracking
-- **Redis**: Cached competitor data for performance
-
-### Output
-- Product enriched with competitor pricing data
-- Ready for strategy-based price calculation
-- Historical competitor data stored for analysis
-
----
-
-## 7. Feed Processing and Status Tracking
-
-**Description**: Managing Amazon feed submissions and monitoring processing status.
-
-### Trigger
-- Feed submission completion (from bulk price update)
-- FEED_PROCESSING_FINISHED SQS notification
-- Periodic status check cron job
-
-### Service Flow
-
-```mermaid
-graph TD
-    A[Feed Submitted] --> B[Store Feed ID]
-    B --> C[Status Monitoring]
-    C --> D{Feed Complete?}
-    D -->|No| E[Continue Monitoring]
-    D -->|Yes| F[Process Results]
-    F --> G[Update Database]
-    G --> H[Handle Errors]
-```
-
-### Data Flow
-
-1. **Feed Tracking Creation**
-   - **Input**: Feed submission ID from Amazon SP-API
-   - **Storage**: Feed tracking table with status
-   - **Fields**: feed_id, seller_id, submission_time, status
-
-2. **Status Monitoring**
-   - **API**: Amazon SP-API GetFeed endpoint
-   - **Frequency**: Every 5 minutes for active feeds
-   - **States**: SUBMITTED → IN_PROGRESS → DONE/CANCELLED
-
-3. **Result Processing**
-   - **Success**: Update product prices in database
-   - **Errors**: Parse error report, create alerts
-   - **Report**: Download and process feed processing report
-
-4. **Database Updates**
-   - **Success Path**: Update `product_listings.last_price_update`
-   - **Error Path**: Create entries in `listing_alerts` table
-   - **Cleanup**: Mark feed as processed
-
-### Key Components
-- **Feed Status Monitor**: Async feed tracking service
-- **Error Report Parser**: Amazon feed error handling
-- **Alert Generator**: Issue notification creation
-
-### Storage
-- **PostgreSQL**: 
-  - Feed tracking table
-  - `listing_alerts` for issues
-  - Updated product prices
-- **SQS**: FEED_PROCESSING_FINISHED notifications
-
-### Output
-- Confirmed price updates in Amazon marketplace
-- Error alerts for failed price changes
-- Updated product catalog with actual prices
-
----
-
-## System Integration Points
-
-### Amazon SP-API Integration
-- **Authentication**: Refresh token-based with automatic renewal
-- **Rate Limiting**: Built-in throttling for API calls
-- **Error Handling**: Retry logic for temporary failures
-
-### SQS Message Processing
-- **Queues**: 
-  - ANY_OFFER_CHANGED for competitor updates
-  - FEED_PROCESSING_FINISHED for feed status
-- **Processing**: Batch message consumption with acknowledgment
-- **Dead Letter Queue**: Failed message handling
-
-### Redis Caching Strategy
-- **Price Data**: `{seller_id}_repriced_products` for bulk operations
-- **Product Lookup**: `{asin}:{seller_id}` for quick access
-- **Account Data**: `account.{seller_id}` for settings
-- **TTL Management**: Automatic expiration for stale data
-
-### Database Design
-- **Partitioning**: Large tables partitioned by marketplace/date
-- **Indexing**: Optimized for ASIN, seller_id lookups
-- **Audit Trail**: Comprehensive change tracking
-
-## Performance Considerations
+## 7. Performance Considerations
+
+### Throughput Optimization
+- **Async processing**: All I/O operations are async
+- **Redis pipelining**: Batch Redis operations where possible
+- **Connection pooling**: Reuse Redis connections
+- **Message batching**: Process multiple SQS messages per batch
+
+### Monitoring and Metrics
+- **Processing time tracking**: Each calculation includes `processing_time_ms`
+- **Success/failure rates**: Track repricing decision outcomes
+- **Price change frequency**: Monitor `price_changed` boolean
+- **Strategy effectiveness**: Track strategy performance by ID
 
 ### Scalability
-- **Horizontal**: Multiple API instances behind load balancer
-- **Processing**: Async task processing with Celery
-- **Caching**: Redis cluster for high availability
-
-### Monitoring
-- **Metrics**: Price change frequency, API response times
-- **Alerts**: Failed API calls, price validation errors
-- **Logging**: Structured logging with correlation IDs
-
-### Error Handling
-- **Graceful Degradation**: Continue processing when non-critical services fail
-- **Circuit Breakers**: Prevent cascade failures
-- **Retry Logic**: Exponential backoff for temporary failures
+- **Horizontal scaling**: Multiple SQS consumer instances
+- **Stateless design**: No shared state between processes
+- **Redis clustering**: Support for Redis cluster deployment
+- **Queue management**: Dead letter queues for failed messages
 
 ---
 
-This documentation provides a comprehensive view of the URepricer system's business processes, enabling developers to understand the complete flow from competitor price changes to Amazon marketplace updates.
+## 8. Development and Testing
+
+### Local Development Setup
+1. **Redis**: Local Redis server on port 6379
+2. **LocalStack**: AWS services emulation on port 4566
+3. **FastAPI**: Development server with auto-reload
+4. **SQS Consumer**: Standalone process for message processing
+
+### Test Data Population
+- **5 strategies**: Predefined configurations
+- **3000+ products**: Realistic test data with scenarios
+- **Multiple sellers**: Amazon and Walmart sellers
+- **Pricing scenarios**: competitive, solo_seller, buybox_winner, out_of_bounds
+
+### End-to-End Testing
+- **SP-API compliant messages**: 5 strategy examples in QUICKSTART.md
+- **Manipulatable pricing**: Edit `ListingPrice.Amount` values
+- **Expected outcomes**: Documented calculated prices for each strategy
+- **Verification**: Redis key inspection and price validation
+
+This architecture ensures reliable, scalable, and maintainable repricing operations with comprehensive error handling and monitoring capabilities.

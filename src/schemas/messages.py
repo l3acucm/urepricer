@@ -5,32 +5,84 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 
 
-class AmazonOfferChange(BaseModel):
-    """Amazon ANY_OFFER_CHANGED notification payload."""
+# Simplified Amazon SP-API structures for repricing decisions
+class OfferChangeTrigger(BaseModel):
+    """Trigger information for the offer change."""
+    marketplace_id: str = Field(..., description="Amazon marketplace identifier")
     asin: str = Field(..., description="Amazon Standard Identification Number")
-    marketplace_id: str = Field(..., description="Amazon marketplace identifier") 
-    seller_id: str = Field(..., description="Amazon seller identifier")
-    item_condition: str = Field(default="NEW", description="Product condition")
+    item_condition: str = Field(default="New", description="Product condition")
     time_of_offer_change: datetime = Field(..., description="When the offer changed")
+    offer_change_type: str = Field(default="External", description="Type of offer change")
+
+class LowestPrice(BaseModel):
+    """Lowest price information."""
+    condition: str = Field(..., description="Item condition")
+    fulfillment_channel: str = Field(..., description="Fulfillment type (Amazon/Merchant)")
+    listing_price: float = Field(..., description="Listing price amount")
+    shipping: Optional[float] = Field(default=0.0, description="Shipping cost")
+    landed_price: Optional[float] = Field(None, description="Total price including shipping")
+
+class BuyBoxPrice(BaseModel):
+    """Buy Box price information."""
+    condition: str = Field(..., description="Item condition")
+    listing_price: float = Field(..., description="Buy Box listing price")
+    shipping: Optional[float] = Field(default=0.0, description="Shipping cost")
+    landed_price: Optional[float] = Field(None, description="Total buy box price")
+
+class NumberOfOffers(BaseModel):
+    """Number of offers by condition and fulfillment."""
+    condition: str = Field(..., description="Item condition")
+    fulfillment_channel: str = Field(..., description="Fulfillment type")
+    offer_count: int = Field(..., description="Number of offers")
+
+class Summary(BaseModel):
+    """Summary of competitive pricing data."""
+    number_of_offers: Optional[List[NumberOfOffers]] = Field(default=None, description="Offer counts")
+    lowest_prices: Optional[List[LowestPrice]] = Field(default=None, description="Lowest prices by condition")
+    buy_box_prices: Optional[List[BuyBoxPrice]] = Field(default=None, description="Buy box prices")
+    list_price: Optional[float] = Field(None, description="Manufacturer suggested retail price")
+
+class Offer(BaseModel):
+    """Individual offer details."""
+    seller_id: str = Field(..., description="Seller identifier")
+    sub_condition: str = Field(default="New", description="Sub-condition")
+    listing_price: float = Field(..., description="Listing price amount")
+    shipping: Optional[float] = Field(default=0.0, description="Shipping cost")
+    landed_price: Optional[float] = Field(None, description="Total price including shipping")
+    fulfillment_channel: str = Field(default="Merchant", description="Fulfillment type")
+    is_buy_box_winner: Optional[bool] = Field(default=False, description="Is this offer the buy box winner")
+    is_featured_merchant: Optional[bool] = Field(default=False, description="Is featured merchant")
+
+class AmazonOfferChange(BaseModel):
+    """Amazon ANY_OFFER_CHANGED notification payload with essential repricing fields."""
+    # Core identification
+    offer_change_trigger: OfferChangeTrigger = Field(..., description="Offer change trigger data")
     
-    # Offer data from SP-API response
-    offers: Optional[List[Dict[str, Any]]] = Field(default=None, description="List of offers from SP-API")
-    summary: Optional[Dict[str, Any]] = Field(default=None, description="Summary data from SP-API")
+    # Competitive pricing summary
+    summary: Optional[Summary] = Field(default=None, description="Pricing summary data")
+    
+    # Top competing offers (simplified from official max 20)
+    offers: Optional[List[Offer]] = Field(default=None, description="List of competing offers")
 
 
 class AmazonSQSMessage(BaseModel):
-    """Complete Amazon SQS message structure."""
-    type: str = Field(..., description="Message type (usually 'Notification')")
+    """Complete Amazon SQS message structure following SP-API specification."""
+    # SQS wrapper fields
+    type: str = Field(default="Notification", description="Message type")
     message_id: str = Field(..., description="SQS message ID")
     timestamp: datetime = Field(..., description="Message timestamp")
     
-    # Parsed notification content
-    notification_type: str = Field(..., description="Amazon notification type")
+    # SP-API notification structure
+    notification_version: str = Field(default="1.0", description="Notification version")
+    notification_type: str = Field(default="ANY_OFFER_CHANGED", description="Amazon notification type")
     payload_version: str = Field(default="1.0", description="Payload version")
     event_time: datetime = Field(..., description="Event timestamp")
     
-    # The actual offer change data
-    offer_change: AmazonOfferChange = Field(..., description="Offer change details")
+    # Notification metadata (simplified)
+    notification_metadata: Optional[Dict[str, Any]] = Field(default=None, description="Notification metadata")
+    
+    # The actual offer change payload
+    payload: AmazonOfferChange = Field(..., description="Any offer changed notification payload")
 
 
 class WalmartOfferChange(BaseModel):

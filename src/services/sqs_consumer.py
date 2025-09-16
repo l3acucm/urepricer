@@ -164,11 +164,6 @@ class SQSConsumer:
                 # If all are buybox winners, use the first one
                 if not seller_id:
                     seller_id = offers[0].get('SellerId')
-            
-            # Final fallback to default test seller for QUICKSTART examples
-            if not seller_id:
-                seller_id = "A1234567890123"
-            
             if asin:
                 logger.info(f"Processing Amazon notification for ASIN: {asin}, Seller: {seller_id}")
                 

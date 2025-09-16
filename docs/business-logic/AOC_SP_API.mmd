@@ -1,0 +1,122 @@
+graph TB
+    subgraph AWS_ANY_OFFER_CHANGED_FEED["AWS ANY_OFFER_CHANGED Notification"]
+        subgraph NotificationMetadata["Notification Metadata"]
+            NotificationType["NotificationType"]
+            PayloadVersion["PayloadVersion"] 
+            EventTime["EventTime"]
+            NotificationVersion["NotificationVersion"]
+        end
+
+        subgraph Payload["Payload"]
+            SellerId["SellerId"]
+            
+            subgraph OfferChangeTrigger["OfferChangeTrigger"]
+                MarketplaceId["MarketplaceId"]
+                ASIN["ASIN"]
+                ItemCondition["ItemCondition"]
+                TimeOfOfferChange["TimeOfOfferChange"]
+                OfferChangeType["OfferChangeType"]
+            end
+
+            subgraph Summary["Summary"]
+                TotalOfferCount["TotalOfferCount"]
+                
+                subgraph NumberOfOffers["NumberOfOffers[]"]
+                    NO_Condition["Condition"]
+                    NO_OfferCount["OfferCount"]
+                    NO_FulfillmentChannel["FulfillmentChannel"]
+                end
+                
+                subgraph LowestPrices["LowestPrices[]"]
+                    LP_Condition["Condition"]
+                    LP_FulfillmentChannel["FulfillmentChannel"]
+                    LP_OfferType["OfferType"]
+                    LP_QuantityTier["QuantityTier"]
+                    LP_QuantityDiscountType["QuantityDiscountType"]
+                    LP_SellerId["SellerId"]
+                    subgraph LP_LandedPrice["LandedPrice"]
+                        LP_LandedAmount["Amount"]
+                        LP_LandedCurrency["CurrencyCode"]
+                    end
+                    subgraph LP_ListingPrice["ListingPrice"]
+                        LP_ListingAmount["Amount"]
+                        LP_ListingCurrency["CurrencyCode"]
+                    end
+                    subgraph LP_Shipping["Shipping"]
+                        LP_ShippingAmount["Amount"]
+                        LP_ShippingCurrency["CurrencyCode"]
+                    end
+                    subgraph LP_Points["Points"]
+                        LP_PointsNumber["PointsNumber"]
+                    end
+                end
+                
+                subgraph BuyBoxPrices["BuyBoxPrices[]"]
+                    BB_Condition["Condition"]
+                    BB_FulfillmentChannel["FulfillmentChannel"]
+                    BB_OfferType["OfferType"]
+                    BB_QuantityTier["QuantityTier"]
+                    BB_QuantityDiscountType["QuantityDiscountType"]
+                    BB_SellerId["SellerId"]
+                    subgraph BB_LandedPrice["LandedPrice"]
+                        BB_LandedAmount["Amount"]
+                        BB_LandedCurrency["CurrencyCode"]
+                    end
+                    subgraph BB_ListingPrice["ListingPrice"]
+                        BB_ListingAmount["Amount"]
+                        BB_ListingCurrency["CurrencyCode"]
+                    end
+                    subgraph BB_Shipping["Shipping"]
+                        BB_ShippingAmount["Amount"]
+                        BB_ShippingCurrency["CurrencyCode"]
+                    end
+                    subgraph BB_Points["Points"]
+                        BB_PointsNumber["PointsNumber"]
+                    end
+                end
+                
+                subgraph NumberOfBuyBoxEligibleOffers["NumberOfBuyBoxEligibleOffers[]"]
+                    NBBE_Condition["Condition"]
+                    NBBE_FulfillmentChannel["FulfillmentChannel"]
+                    NBBE_OfferCount["OfferCount"]
+                end
+            end
+            
+            subgraph Offers["Offers[]"]
+                OFF_SellerId["SellerId"]
+                OFF_SubCondition["SubCondition"]
+                OFF_SellerFeedbackRating["SellerFeedbackRating"]
+                OFF_SellerFeedbackCount["SellerFeedbackCount"]
+                OFF_ShippingTime["ShippingTime"]
+                subgraph OFF_ListingPrice["ListingPrice"]
+                    OFF_ListingAmount["Amount"]
+                    OFF_ListingCurrency["CurrencyCode"]
+                end
+                subgraph OFF_LandedPrice["LandedPrice"]
+                    OFF_LandedAmount["Amount"]
+                    OFF_LandedCurrency["CurrencyCode"]
+                end
+                subgraph OFF_Shipping["Shipping"]
+                    OFF_ShippingAmount["Amount"]
+                    OFF_ShippingCurrency["CurrencyCode"]
+                end
+                subgraph OFF_Points["Points"]
+                    OFF_PointsNumber["PointsNumber"]
+                end
+                subgraph OFF_ShipsFrom["ShipsFrom"]
+                    OFF_Country["Country"]
+                    OFF_State["State"]
+                end
+                OFF_IsFulfilledByAmazon["IsFulfilledByAmazon"]
+                OFF_IsBuyBoxWinner["IsBuyBoxWinner"]
+                OFF_ConditionNotes["ConditionNotes"]
+                subgraph OFF_PrimeInformation["PrimeInformation"]
+                    OFF_IsOfferPrime["IsOfferPrime"]
+                    OFF_IsOfferNationalPrime["IsOfferNationalPrime"]
+                end
+                OFF_IsExpeditedShippingAvailable["IsExpeditedShippingAvailable"]
+                OFF_IsFeaturedMerchant["IsFeaturedMerchant"]
+                OFF_ShipsDomestically["ShipsDomestically"]
+            end
+        end
+    end

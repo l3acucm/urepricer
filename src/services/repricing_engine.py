@@ -33,85 +33,31 @@ class Product:
         self.no_of_offers = kwargs.get('no_of_offers', 0)
         self.is_seller_buybox_winner = kwargs.get('is_seller_buybox_winner', False)
         
-        # Product details
-        self.item_condition = kwargs.get('item_condition', 'new')
-        self.mapped_item_condition = self.item_condition.lower()
-        self.inventory_quantity = kwargs.get('inventory_quantity')
-        self.inventory_age = kwargs.get('inventory_age', 0)
-        self.fulfillment_type = kwargs.get('fullfilment_type', kwargs.get('fulfillment_type', 'AMAZON'))
-        self.is_b2b = kwargs.get('is_b2b', False)
+        # Essential product details only
+        self.item_condition = kwargs.get('item_condition', 'New')
+        self.quantity = kwargs.get('quantity', kwargs.get('inventory_quantity', 0))
+        self.status = kwargs.get('status', 'Active')
         
         # Strategy data
         self.strategy = None
         self.strategy_id = kwargs.get('strategy_id')
-        self.repricer_type = "REPRICER"
         
         # Results
         self.updated_price = None
         self.message = ""
         
-        # Add account-like object for backward compatibility
+        # Backward compatibility for legacy code
         self.account = type('Account', (), {'seller_id': self.seller_id})()
-        
-        # B2B tiers (if applicable)
-        self.tiers = {}
-        if 'b2b_rules' in kwargs:
-            self._process_b2b_rules(kwargs['b2b_rules'])
-    
-    def _process_b2b_rules(self, b2b_rules: Dict[str, Any]):
-        """Process B2B rules and tiers."""
-        self.is_b2b = True
-        
-        # B2B standard pricing
-        self.b2b_listed_price = b2b_rules.get('listed_price')
-        self.b2b_min_price = b2b_rules.get('min')
-        self.b2b_max_price = b2b_rules.get('max') 
-        self.b2b_default_price = b2b_rules.get('default_price')
-        self.b2b_strategy_id = b2b_rules.get('strategy_id')
-        
-        # Process tiers
-        tiers_data = b2b_rules.get('tiers', {})
-        for tier_key, tier_data in tiers_data.items():
-            tier = Tier(
-                quantity=int(tier_key),
-                listed_price=tier_data.get('listed_price'),
-                min_price=tier_data.get('min'),
-                max_price=tier_data.get('max'),
-                default_price=tier_data.get('default_price')
-            )
-            self.tiers[tier_key] = tier
-
-
-class Tier:
-    """B2B tier model for quantity-based pricing."""
-    
-    def __init__(self, quantity: int, **kwargs):
-        self.quantity = quantity
-        self.listed_price = kwargs.get('listed_price')
-        self.min_price = kwargs.get('min_price', kwargs.get('min'))
-        self.max_price = kwargs.get('max_price', kwargs.get('max'))
-        self.default_price = kwargs.get('default_price')
-        
-        # Competition data (set during processing)
-        self.competitor_price = None
-        
-        # Results
-        self.updated_price = None
-        self.strategy = None
-        self.strategy_id = None
-        self.message = ""
-
 
 class Strategy:
     """Strategy configuration model."""
     
     def __init__(self, **kwargs):
+        # Essential strategy fields only
         self.compete_with = kwargs.get('compete_with', 'MATCH_BUYBOX')
         self.beat_by = float(kwargs.get('beat_by', 0.0))
         self.min_price_rule = kwargs.get('min_price_rule', 'JUMP_TO_MIN')
         self.max_price_rule = kwargs.get('max_price_rule', 'JUMP_TO_MAX')
-        self.b2b_compete_for = kwargs.get('b2b_compete_for', 'LOW')
-        self.b2b_beat_by_rule = kwargs.get('b2b_beat_by_rule', 'BEAT_BY')
 
 
 class RepricingEngine:

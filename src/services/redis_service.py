@@ -204,24 +204,24 @@ class RedisService:
             redis_client = await self.get_connection()
             ttl = ttl_seconds or self.default_ttl
             
-            # Add metadata
-            price_data_with_meta = {
-                **price_data,
-                "asin": asin,
-                "seller_id": seller_id,
-                "sku": sku,
-                "saved_at": datetime.now(UTC).isoformat(),
-                "expires_at": (datetime.now(UTC) + timedelta(seconds=ttl)).isoformat()
+            # Simplified calculated price data (only essential fields)
+            essential_price_data = {
+                "new_price": price_data.get("new_price"),
+                "old_price": price_data.get("old_price"),
+                "strategy_used": price_data.get("strategy_used"),
+                "strategy_id": price_data.get("strategy_id"),
+                "competitor_price": price_data.get("competitor_price"),
+                "calculated_at": price_data.get("calculated_at", datetime.now(UTC).isoformat())
             }
             
             # Redis key for calculated prices
             redis_key = f"CALCULATED_PRICES:{seller_id}"
             
-            # Save the price data
+            # Save the simplified price data
             await redis_client.hset(
                 redis_key,
                 sku,
-                json.dumps(price_data_with_meta)
+                json.dumps(essential_price_data)
             )
             
             # Set TTL on the entire hash
@@ -337,7 +337,7 @@ class RedisService:
         processed = {}
         
         for key, value in raw_strategy.items():
-            if key in ["beat_by", "b2b_beat_by"]:
+            if key in ["beat_by"]:
                 try:
                     processed[key] = float(value)
                 except (ValueError, TypeError):

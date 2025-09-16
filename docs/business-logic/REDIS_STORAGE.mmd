@@ -1,0 +1,130 @@
+graph TB
+    subgraph REDIS_DATABASE["Redis Database Structure"]
+        subgraph PRODUCT_DATA["Product Data Storage"]
+            subgraph ASIN_KEYS["ASIN Keys (Hash Structure)"]
+                ASIN_KEY["ASIN_{asin}"]
+                subgraph ASIN_FIELDS["Hash Fields"]
+                    SELLER_SKU_FIELD["{seller_id}:{sku}"]
+                    subgraph PRODUCT_JSON["Product JSON Value"]
+                        PROD_listed_price["listed_price"]
+                        PROD_min_price["min_price"]
+                        PROD_max_price["max_price"]
+                        PROD_default_price["default_price"]
+                        PROD_strategy_id["strategy_id"]
+                        PROD_status["status"]
+                        PROD_item_condition["item_condition"]
+                        PROD_quantity["quantity"]
+                    end
+                end
+            end
+            
+            subgraph ALTERNATIVE_STRUCTURE["Alternative Structure"]
+                ALT_ASIN_SELLER["ASIN_{asin}:{seller_id}"]
+                subgraph ALT_FIELDS["Hash Fields"]
+                    ALT_SKU_FIELD["{sku}"]
+                    ALT_PRODUCT_JSON["Product JSON Value (same structure)"]
+                end
+            end
+        end
+        
+        subgraph STRATEGY_DATA["Strategy Data Storage"]
+            subgraph STRATEGY_KEYS["Strategy Keys (Hash Structure)"]
+                STRATEGY_KEY["strategy.{strategy_id}"]
+                subgraph STRATEGY_FIELDS["Hash Fields"]
+                    STRAT_compete_with["compete_with"]
+                    STRAT_beat_by["beat_by"]
+                    STRAT_min_price_rule["min_price_rule"]
+                    STRAT_max_price_rule["max_price_rule"]
+                end
+            end
+        end
+        
+        subgraph CALCULATED_PRICES["Calculated Prices Storage"]
+            subgraph CALC_KEYS["Calculated Price Keys (Hash Structure)"]
+                CALC_KEY["CALCULATED_PRICES:{seller_id}"]
+                subgraph CALC_FIELDS["Hash Fields"]
+                    CALC_SKU_FIELD["{sku}"]
+                    subgraph CALC_JSON["Calculated Price JSON Value"]
+                        CALC_new_price["new_price"]
+                        CALC_old_price["old_price"]
+                        CALC_strategy_used["strategy_used"]
+                        CALC_strategy_id["strategy_id"]
+                        CALC_competitor_price["competitor_price"]
+                        CALC_calculated_at["calculated_at"]
+                    end
+                end
+                CALC_TTL["TTL: 2 hours (7200 seconds)"]
+            end
+        end
+    end
+    
+    subgraph DATA_OPERATIONS["Data Operations"]
+        subgraph READ_OPERATIONS["Read Operations"]
+            GET_PRODUCT["get_product_data(asin, seller_id, sku)"]
+            GET_STRATEGY["get_strategy_data(strategy_id)"]
+            GET_CURRENT_PRICE["get_current_price(asin, seller_id, sku)"]
+            GET_STOCK["get_stock_quantity(asin, seller_id, sku)"]
+            GET_CALC_PRICE["get_calculated_price(seller_id, sku)"]
+            BULK_GET["bulk_get_product_data(requests[])"]
+        end
+        
+        subgraph WRITE_OPERATIONS["Write Operations"]
+            SAVE_CALC_PRICE["save_calculated_price(asin, seller_id, sku, price_data)"]
+            POPULATE_PRODUCTS["populate_test_data.py creates products"]
+            POPULATE_STRATEGIES["populate_test_data.py creates strategies"]
+        end
+    end
+    
+    subgraph KEY_PATTERNS["Redis Key Patterns"]
+        subgraph PRODUCT_PATTERNS["Product Key Patterns"]
+            PATTERN_ASIN["ASIN_{asin}"]
+            PATTERN_ASIN_SELLER["ASIN_{asin}:{seller_id}"]
+            EXAMPLE_ASIN["Example: ASIN_B087QZPXYZ"]
+            EXAMPLE_FIELD["Field: A1SELLER123:SKU-ABC-123"]
+        end
+        
+        subgraph STRATEGY_PATTERNS["Strategy Key Patterns"]
+            PATTERN_STRATEGY["strategy.{strategy_id}"]
+            EXAMPLE_STRATEGY["Example: strategy.1"]
+        end
+        
+        subgraph CALC_PATTERNS["Calculated Price Key Patterns"]
+            PATTERN_CALC["CALCULATED_PRICES:{seller_id}"]
+            EXAMPLE_CALC["Example: CALCULATED_PRICES:A1SELLER123"]
+            EXAMPLE_CALC_FIELD["Field: SKU-ABC-123"]
+        end
+    end
+    
+    subgraph DATA_TYPES["Redis Data Types Used"]
+        HASH_TYPE["HASH - For structured data with multiple fields"]
+        JSON_VALUES["JSON Strings - For complex nested data"]
+        STRING_VALUES["String Values - For simple strategy fields"]
+        TTL_MECHANISM["TTL - Automatic expiration for calculated prices"]
+    end
+    
+    subgraph CONNECTION_POOLING["Connection Management"]
+        POOL_CONFIG["Connection Pool Configuration"]
+        subgraph POOL_SETTINGS["Pool Settings"]
+            MAX_CONNECTIONS["max_connections: 20"]
+            RETRY_TIMEOUT["retry_on_timeout: True"]
+            DECODE_RESPONSES["decode_responses: True"]
+        end
+        
+        ASYNC_REDIS["Async Redis Client"]
+        PIPELINE_SUPPORT["Pipeline Support for Bulk Operations"]
+    end
+    
+    %% Relationships
+    ASIN_KEY --> SELLER_SKU_FIELD
+    SELLER_SKU_FIELD --> PRODUCT_JSON
+    STRATEGY_KEY --> STRATEGY_FIELDS
+    CALC_KEY --> CALC_SKU_FIELD
+    CALC_SKU_FIELD --> CALC_JSON
+    
+    GET_PRODUCT --> ASIN_KEY
+    GET_STRATEGY --> STRATEGY_KEY
+    GET_CALC_PRICE --> CALC_KEY
+    SAVE_CALC_PRICE --> CALC_KEY
+    
+    BULK_GET --> PIPELINE_SUPPORT
+    PIPELINE_SUPPORT --> ASYNC_REDIS

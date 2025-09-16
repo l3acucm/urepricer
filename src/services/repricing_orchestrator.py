@@ -63,7 +63,7 @@ class RepricingOrchestrator:
         
         try:
             # Step 1: Extract and validate message fields
-            processed_data = await self.message_processor.process_amazon_sqs_message(raw_sqs_message)
+            processed_data: ProcessedOfferData = await self.message_processor.process_amazon_sqs_message(raw_sqs_message)
             
             # Step 2-4: Run through repricing pipeline
             result = await self._run_repricing_pipeline(processed_data)

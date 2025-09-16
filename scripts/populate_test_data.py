@@ -244,7 +244,7 @@ class TestDataPopulator:
                     default_price=pricing['default_price'],
                     competitor_price=pricing['competitor_price'],
                     strategy_id=random.choice(list(self.strategies.keys())),
-                    is_b2b=random.choice([True, False]) if seller.platform == 'amazon' else False,
+                    is_b2b=False,  # B2B complexity removed
                     product_name=f"{random.choice(self.categories)} Product {random.randint(100, 999)}",
                     scenario=pricing['scenario']
                 )
@@ -270,35 +270,19 @@ class TestDataPopulator:
         
         saved_count = 0
         for product in products:
-            # Create product data structure
+            # Create simplified product data structure (only essential fields)
             product_data = {
-                "asin": product.asin,
-                "sku": product.sku,
-                "seller_id": product.seller_id,
-                "marketplace_type": product.marketplace_type,
                 "listed_price": product.listed_price,
                 "min_price": product.min_price,
                 "max_price": product.max_price,
                 "default_price": product.default_price,
-                "competitor_price": product.competitor_price,
                 "strategy_id": product.strategy_id,
-                "is_b2b": product.is_b2b,
-                "product_name": product.product_name,
-                "scenario": product.scenario,
-                "item_condition": "New",
-                "quantity": random.randint(1, 100),
-                "inventory_age": random.randint(0, 365),
                 "status": "Active",
-                "repricer_enabled": True,
-                "compete_with": self.strategies[product.strategy_id]["compete_with"],
-                "last_seen": datetime.now(UTC).isoformat(),
-                "data_freshness": datetime.now(UTC).isoformat(),
-                "created_at": datetime.now(UTC).isoformat()
+                "item_condition": "New",
+                "quantity": random.randint(1, 100)
             }
             
-            # Add B2B tiers if applicable
-            if product.is_b2b:
-                product_data["tiers"] = self.generate_b2b_tiers(product)
+            # B2B complexity removed for simplified schema
             
             # Save to Redis with ASIN structure
             redis_key = f"ASIN_{product.asin}"
@@ -320,52 +304,12 @@ class TestDataPopulator:
         print(f"✅ Saved {saved_count} product listings")
 
     def generate_b2b_tiers(self, product: TestProduct) -> Dict[str, Any]:
-        """Generate B2B pricing tiers."""
-        tiers = {}
-        base_price = product.listed_price
-        
-        # Generate 2-4 tiers
-        tier_quantities = random.sample([5, 10, 25, 50, 100], random.randint(2, 4))
-        
-        for qty in tier_quantities:
-            discount = random.uniform(0.05, 0.20)  # 5-20% discount
-            tier_price = round(base_price * (1 - discount), 2)
-            
-            tiers[str(qty)] = {
-                "competitor_price": round(tier_price * random.uniform(0.9, 1.1), 2) if product.competitor_price else None,
-                "min_price": round(tier_price * 0.8, 2),
-                "max_price": round(tier_price * 1.3, 2),
-                "default_price": tier_price,
-                "updated_price": None,
-                "strategy": None,
-                "strategy_id": product.strategy_id,
-                "message": ""
-            }
-        
-        return tiers
+        """B2B tiers removed from simplified schema."""
+        return {}
 
     async def save_seller_accounts(self, sellers: List[TestSeller]):
-        """Save seller account data to Redis."""
-        print("💾 Saving seller account data...")
-        
-        for seller in sellers:
-            account_data = {
-                "seller_id": seller.seller_id,
-                "platform": seller.platform,
-                "marketplace_type": seller.marketplace_type,
-                "active_listings": seller.active_listings,
-                "strategy_types": seller.strategy_types,
-                "status": "Active",
-                "created_at": datetime.now(UTC).isoformat(),
-                "last_seen": datetime.now(UTC).isoformat()
-            }
-            
-            redis_key = f"account.{seller.seller_id}"
-            for field, value in account_data.items():
-                await self.redis_client.hset(redis_key, field, json.dumps(value) if isinstance(value, list) else str(value))
-            await self.redis_client.expire(redis_key, 7200)
-        
-        print(f"✅ Saved {len(sellers)} seller accounts")
+        """Seller account data removed from simplified schema."""
+        print("✅ Skipping seller account data (removed from simplified schema)")
 
     async def create_scenario_summary(self, products: List[TestProduct]):
         """Create a summary of test scenarios."""

@@ -43,32 +43,21 @@ class MessageProcessor:
             self.logger.debug(f"Notification data: {notification_data}")
             
             # Parse the SP-API compliant ANY_OFFER_CHANGED notification
-            payload_data = notification_data.get("Payload") or notification_data.get("payload", {})
+            payload_data = notification_data.get("Payload")
             
             # Extract OfferChangeTrigger, Summary, and Offers
             trigger_data = payload_data.get("OfferChangeTrigger", {})
             summary_data = payload_data.get("Summary", {})
             offers_data = payload_data.get("Offers", [])
             
-            # Handle backward compatibility with legacy format
-            if not trigger_data and not summary_data:
-                offer_change_data = payload_data.get("AnyOfferChangedNotification", {})
-                if offer_change_data:
-                    trigger_data = {
-                        "ASIN": offer_change_data.get("ASIN"),
-                        "MarketplaceId": offer_change_data.get("MarketplaceId"),
-                        "ItemCondition": offer_change_data.get("ItemCondition", "New"),
-                        "TimeOfOfferChange": offer_change_data.get("TimeOfOfferChange")
-                    }
-            
             # Extract core identification
             asin = trigger_data.get("ASIN") or trigger_data.get("asin", "")
-            marketplace_id = trigger_data.get("MarketplaceId") or trigger_data.get("marketplace_id", "ATVPDKIKX0DER")
-            item_condition = trigger_data.get("ItemCondition") or trigger_data.get("item_condition", "New")
+            marketplace_id = trigger_data.get("MarketplaceId")
+            item_condition = trigger_data.get("ItemCondition")
             time_of_change = self._parse_timestamp(
-                trigger_data.get("TimeOfOfferChange") or trigger_data.get("time_of_offer_change")
+                trigger_data.get("TimeOfOfferChange")
             )
-            
+
             # Extract competitive pricing from Summary and Offers
             competitor_price = self._extract_competitor_price(summary_data, item_condition)
             buybox_winner = self._extract_buybox_winner(offers_data)
@@ -244,6 +233,7 @@ class MessageProcessor:
         
         # Try lowest prices first (most reliable for competitive pricing)
         lowest_prices = summary_data.get("LowestPrices", [])
+        lowest_price = None
         if lowest_prices:
             for price_info in lowest_prices:
                 condition = price_info.get("Condition", "").lower()
@@ -251,23 +241,14 @@ class MessageProcessor:
                     # Prefer landed price (includes shipping), fallback to listing price
                     landed_price = price_info.get("LandedPrice", {})
                     listing_price = price_info.get("ListingPrice", {})
-                    
+                    price_to_compare = None
                     if landed_price and landed_price.get("Amount"):
-                        return float(landed_price["Amount"])
+                        price_to_compare = float(landed_price["Amount"])
                     elif listing_price and listing_price.get("Amount"):
-                        return float(listing_price["Amount"])
-            
-            # Fallback to any lowest price if condition not found
-            if lowest_prices:
-                price_info = lowest_prices[0]
-                landed_price = price_info.get("LandedPrice", {})
-                listing_price = price_info.get("ListingPrice", {})
-                
-                if landed_price and landed_price.get("Amount"):
-                    return float(landed_price["Amount"])
-                elif listing_price and listing_price.get("Amount"):
-                    return float(listing_price["Amount"])
-        
+                        price_to_compare = float(listing_price["Amount"])
+                    if price_to_compare is not None and (lowest_price is None or price_to_compare < lowest_price):
+                        lowest_price = price_to_compare
+
         # Try buy box prices if lowest prices not available
         buybox_prices = summary_data.get("BuyBoxPrices", [])
         if buybox_prices:

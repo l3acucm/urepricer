@@ -10,11 +10,11 @@ from decimal import Decimal
 from ..services.sqs_consumer import get_sqs_consumer
 from ..services.redis_service import redis_service
 from ..services.repricing_orchestrator import RepricingOrchestrator
-from ..models.products import PriceValidationError
+from ..utils.exceptions import PriceValidationError
 
 router = APIRouter()
 
-# Simplified webhook endpoints for quickstart compatibility
+# Webhook endpoints for Amazon SP-API notifications
 
 
 @router.get("/stats")

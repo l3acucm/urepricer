@@ -2,11 +2,8 @@ from typing import Dict, Type
 from ..strategies.chase_buybox import ChaseBuyBox
 from ..strategies.maxmise_profit import MaximiseProfit
 from ..strategies.only_seller import OnlySeller
-
-
-class SkipProductRepricing(Exception):
-    """Exception raised when product repricing should be skipped."""
-    pass
+from ..utils.exceptions import SkipProductRepricing
+from ..models.product import Product
 
 
 strategies: Dict[str, Type] = {
@@ -27,7 +24,7 @@ class ApplyStrategyService:
     def apply(self, product: Product) -> None:
         if product.no_of_offers == 1:
             strategy_type = 'ONLY_SELLER'
-        elif not product.is_b2b and product.is_seller_buybox_winner:
+        elif product.is_seller_buybox_winner:
             strategy_type = 'MAXIMISE_PROFIT'
         else:
             strategy_type = 'WIN_BUYBOX'
@@ -36,7 +33,7 @@ class ApplyStrategyService:
         strategy = strategies[strategy_type]
         strategy(product).apply()
 
-        if not product.is_b2b and product.updated_price == product.listed_price:
+        if product.updated_price == product.listed_price:
             raise SkipProductRepricing(
                 f'New price and old price are same, therefore, skipping repricing for ASIN: {product.asin}...'
             )

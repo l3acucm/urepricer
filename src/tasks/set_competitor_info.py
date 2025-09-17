@@ -1,9 +1,5 @@
 from typing import Dict, Any, Iterator, Optional
-
-
-class SkipProductRepricing(Exception):
-    """Exception raised when product repricing should be skipped."""
-    pass
+from ..utils.exceptions import SkipProductRepricing
 
 
 class SetCompetitorInfo:

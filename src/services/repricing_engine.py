@@ -1,63 +1,16 @@
 """Core repricing engine that makes decisions and calculates prices."""
 
-import asyncio
 import time
 from typing import Dict, Any, Optional, Tuple
-from datetime import datetime
 from loguru import logger
 
 from ..schemas.messages import ProcessedOfferData, RepricingDecision, CalculatedPrice
 from ..services.redis_service import RedisService
-from ..strategies.new_price_processor import NewPriceProcessor
-from ..strategies import ChaseBuyBox, MaximiseProfit, OnlySeller, PriceBoundsError
-from ..tasks.set_competitor_info import SetCompetitorInfo
+from ..strategies import ChaseBuyBox, MaximiseProfit, OnlySeller
+from ..models.product import Product, Strategy
+from ..utils.exceptions import SkipProductRepricing, PriceBoundsError
 
 
-class Product:
-    """Product model for repricing calculations."""
-    
-    def __init__(self, **kwargs):
-        # Core identification
-        self.asin = kwargs.get('asin')
-        self.sku = kwargs.get('sku') 
-        self.seller_id = kwargs.get('seller_id')
-        
-        # Pricing data
-        self.listed_price = kwargs.get('listed_price')
-        self.min_price = kwargs.get('min', kwargs.get('min_price'))
-        self.max_price = kwargs.get('max', kwargs.get('max_price'))
-        self.default_price = kwargs.get('default_price')
-        
-        # Competition data
-        self.competitor_price = kwargs.get('competitor_price')
-        self.no_of_offers = kwargs.get('no_of_offers', 0)
-        self.is_seller_buybox_winner = kwargs.get('is_seller_buybox_winner', False)
-        
-        # Essential product details only
-        self.item_condition = kwargs.get('item_condition', 'New')
-        self.quantity = kwargs.get('quantity', kwargs.get('inventory_quantity', 0))
-        self.status = kwargs.get('status', 'Active')
-        
-        # Strategy data
-        self.strategy = None
-        self.strategy_id = kwargs.get('strategy_id')
-        
-        # Results
-        self.updated_price = None
-        self.message = ""
-        
-        # Backward compatibility for legacy code
-        self.account = type('Account', (), {'seller_id': self.seller_id})()
-
-class Strategy:
-    """Strategy configuration model."""
-    
-    def __init__(self, **kwargs):
-        # Essential strategy fields only
-        self.compete_with = kwargs.get('compete_with', 'MATCH_BUYBOX')
-        self.beat_by = float(kwargs.get('beat_by', 0.0))
-        self.min_price_rule = kwargs.get('min_price_rule', 'JUMP_TO_MIN')
-        self.max_price_rule = kwargs.get('max_price_rule', 'JUMP_TO_MAX')
 
 
 class RepricingEngine:
@@ -159,6 +112,7 @@ class RepricingEngine:
         
         # Get current product data
         product_data = await self.redis.get_product_data(asin, seller_id, sku)
+        strategy_id = product_data.get('strategy_id', 'unknown')
         if not product_data:
             return RepricingDecision(
                 should_reprice=False,
@@ -172,15 +126,44 @@ class RepricingEngine:
                 stock_quantity=-1
             )
 
-        # Prevent self competition - check if we are competing against ourselves
-        if self._is_self_competing(offer_data, seller_id):
+        # Prevent self competition - check if we are competing against ourselves using new method
+        strategy_data = await self.redis.get_strategy_data(strategy_id)
+        from ..models.product import Product, Strategy
+        
+        # Create product and strategy objects for the new self-competition check
+        from decimal import Decimal
+        
+        strategy = Strategy(
+            compete_with=strategy_data.get('compete_with', 'LOWEST_PRICE'),
+            beat_by=Decimal(str(strategy_data.get('beat_by', 0.0))),
+            min_price_rule=strategy_data.get('min_price_rule', 'JUMP_TO_MIN'),
+            max_price_rule=strategy_data.get('max_price_rule', 'JUMP_TO_MAX')
+        )
+        
+        # Convert numeric fields to Decimal as required by Product model
+        product_data_converted = {}
+        for key, value in product_data.items():
+            if key in ['listed_price', 'min_price', 'max_price', 'default_price'] and value is not None:
+                product_data_converted[key] = Decimal(str(value))
+            else:
+                product_data_converted[key] = value
+        
+        product = Product(
+            asin=asin,
+            seller_id=seller_id,
+            sku=sku,
+            strategy=strategy,
+            **product_data_converted
+        )
+        
+        if await self._check_self_competition(product, offer_data):
             return RepricingDecision(
                 should_reprice=False,
-                reason=f"Self-competition detected - we are the buybox winner or only competitor",
+                reason=f"Self-competition detected for {strategy.compete_with} strategy",
                 asin=asin,
                 sku=sku,
                 seller_id=seller_id,
-                strategy_id=product_data.get('strategy_id', 'unknown'),
+                strategy_id=strategy_id,
                 competitor_data=offer_data,
                 current_price=product_data.get('listed_price'),
                 stock_quantity=-1
@@ -262,20 +245,25 @@ class RepricingEngine:
             filtered_product_data = {k: v for k, v in product_data.items() 
                                    if k not in ['asin', 'sku', 'seller_id']}
             
-            product = Product(
+            product = Product.from_kwargs(
                 asin=decision.asin,
                 sku=decision.sku,
                 seller_id=decision.seller_id,
                 **filtered_product_data
             )
             
-            product.strategy = Strategy(**strategy_data)
+            product.strategy = Strategy.model_construct(**strategy_data)
             product.strategy_id = decision.strategy_id
             
-            # Set competitor information using offer data
-            await self._set_competitor_info(product, decision.competitor_data)
+            # Early strategy-aware self-competition detection
+            if await self._check_self_competition(product, decision.competitor_data):
+                raise SkipProductRepricing(f"Self-competition detected for {product.strategy.compete_with} strategy on ASIN {product.asin} by seller {product.seller_id}")
 
-            strategy_class = ChaseBuyBox
+            # Set clean competitor info for strategy (no self-competition)
+            await self._set_clean_competitor_info(product, decision.competitor_data)
+
+            # Select strategy dynamically based on competitive situation
+            strategy_class = self._select_strategy_class(product)
 
             # Apply the strategy
             try:
@@ -393,79 +381,73 @@ class RepricingEngine:
             )
         
         return success
+
     
-    def _is_self_competing(self, offer_data: ProcessedOfferData, our_seller_id: str) -> bool:
-        """
-        Check if we are competing against ourselves.
+    async def _check_self_competition(self, product: Product, offer_data: ProcessedOfferData) -> bool:
+        """Check if we're competing against ourselves based on strategy type."""
+        strategy_type = product.strategy.compete_with
+        our_seller_id = product.seller_id
+        competition_data = offer_data.competition_data
         
-        Args:
-            offer_data: Processed offer data containing competitor information
-            our_seller_id: Our seller ID to check against
-            
-        Returns:
-            True if we are self-competing, False otherwise
-        """
-        # Check if we are the buybox winner
-        if offer_data.buybox_winner and offer_data.buybox_winner == our_seller_id:
-            self.logger.debug(f"Self-competition: We are the buybox winner ({our_seller_id})")
-            return True
+        self.logger.debug(f"Checking self-competition for strategy {strategy_type}, seller {our_seller_id}")
         
-        # Check if we appear in the offers list as a competitor
-        if offer_data.raw_offers:
-            our_offers_count = 0
-            total_valid_offers = 0
-            
-            for offer in offer_data.raw_offers:
-                # Extract seller ID from various possible formats
-                offer_seller_id = None
-                if isinstance(offer, dict):
-                    # Try different possible field names
-                    offer_seller_id = (offer.get('sellerId') or 
-                                     offer.get('seller_id') or 
-                                     offer.get('SellerId') or
-                                     offer.get('SellerID'))
+        if strategy_type == 'LOWEST_PRICE':
+            competitor = competition_data.lowest_price_competitor
+            if competitor and competitor.seller_id == our_seller_id:
+                self.logger.debug(f"Self-competition detected: we are the lowest price competitor")
+                return True
                 
-                if offer_seller_id:
-                    total_valid_offers += 1
-                    if offer_seller_id == our_seller_id:
-                        our_offers_count += 1
-            
-            # If we are the only seller in the offers, we're self-competing
-            if total_valid_offers > 0 and our_offers_count == total_valid_offers:
-                self.logger.debug(f"Self-competition: We are all {our_offers_count} offers in the list")
+        elif strategy_type == 'LOWEST_FBA_PRICE':
+            competitor = competition_data.lowest_fba_competitor
+            if competitor and competitor.seller_id == our_seller_id:
+                self.logger.debug(f"Self-competition detected: we are the lowest FBA competitor")
+                return True
+                
+        elif strategy_type == 'MATCH_BUYBOX':
+            buybox_winner = competition_data.buybox_winner
+            if buybox_winner and buybox_winner.seller_id == our_seller_id:
+                self.logger.debug(f"Self-competition detected: we already have the buybox")
                 return True
         
-        # Check if the competitor_price is from our own listing
-        # This is harder to detect definitively, so we rely on the above checks
-        
         return False
-    
-    async def _set_competitor_info(self, product: Product, offer_data: ProcessedOfferData):
-        """Set competitor information on product using offer data."""
-        # Create a mock payload structure for SetCompetitorInfo
-        # Extract specific price arrays from raw_summary for SetCompetitorInfo
-        buybox_prices = []
-        lowest_prices = []
-        if offer_data.raw_summary:
-            buybox_prices = offer_data.raw_summary.get('BuyBoxPrices', [])
-            lowest_prices = offer_data.raw_summary.get('LowestPrices', [])
+
+    async def _set_clean_competitor_info(self, product: Product, offer_data: ProcessedOfferData):
+        """Set clean competitor information on product (no self-competition)."""
+        strategy_type = product.strategy.compete_with
+        competition_data = offer_data.competition_data
         
-        payload = {
-            'Summary.TotalOfferCount': offer_data.total_offers or 1,
-            'Offers': offer_data.raw_offers or [],
-            'Summary.BuyBoxPrices': buybox_prices,
-            'Summary.LowestPrices': lowest_prices
-        }
+        # Set strategy-specific competitor price and metadata
+        if strategy_type == 'LOWEST_PRICE':
+            competitor = competition_data.lowest_price_competitor
+            if competitor:
+                product.competitor_price = competitor.price
+                self.logger.debug(f"Set LOWEST_PRICE competitor: {competitor.seller_id} at ${competitor.price}")
+                
+        elif strategy_type == 'LOWEST_FBA_PRICE':
+            competitor = competition_data.lowest_fba_competitor
+            if competitor:
+                product.competitor_price = competitor.price
+                self.logger.debug(f"Set LOWEST_FBA_PRICE competitor: {competitor.seller_id} at ${competitor.price}")
+                
+        elif strategy_type == 'MATCH_BUYBOX':
+            buybox_winner = competition_data.buybox_winner
+            if buybox_winner:
+                product.competitor_price = buybox_winner.price
+                self.logger.debug(f"Set MATCH_BUYBOX competitor: {buybox_winner.seller_id} at ${buybox_winner.price}")
         
-        # Set basic competitor price from offer data
-        if offer_data.competitor_price:
-            product.competitor_price = offer_data.competitor_price
-            product.no_of_offers = offer_data.total_offers or 1
-            self.logger.debug(f"Set competitor price from offer data: {product.competitor_price}")
+        # Set total offers count
+        product.no_of_offers = competition_data.total_offers or 1
         
-        # Skip SetCompetitorInfo for SP-API format - we already extract competitor prices correctly
-        # The legacy SetCompetitorInfo expects different data structure and overrides our values
-        self.logger.debug(f"Skipping SetCompetitorInfo - using extracted competitor price: {product.competitor_price}")
+        self.logger.debug(f"Final competitor price set: ${product.competitor_price}, total offers: {product.no_of_offers}")
+
+    def _select_strategy_class(self, product: Product):
+        """Select strategy class based on competitive situation."""
+        if product.no_of_offers == 1:
+            return OnlySeller
+        elif getattr(product, 'is_seller_buybox_winner', False):
+            return MaximiseProfit  
+        else:
+            return ChaseBuyBox
 
     async def _find_sku_for_asin_seller(self, asin: str, seller_id: str) -> Optional[str]:
         """
@@ -510,7 +492,7 @@ class RepricingEngine:
         """
         Find corresponding ASIN and SKU for a Walmart item.
         
-        For Walmart webhooks, item_id is the ASIN and we need to find the corresponding SKU
+        For Walmart webhooks, item_id is the ASIN, and we need to find the corresponding SKU
         for the specific seller from Redis.
         """
         try:

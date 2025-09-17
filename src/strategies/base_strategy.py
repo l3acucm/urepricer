@@ -5,17 +5,8 @@ from typing import Any, Optional
 from decimal import Decimal, ROUND_HALF_UP
 from loguru import logger
 
-from .new_price_processor import NewPriceProcessor, SkipProductRepricing
-
-
-class PriceBoundsError(Exception):
-    """Exception raised when calculated price is outside product's min/max bounds."""
-    
-    def __init__(self, message: str, calculated_price: float, min_price: float, max_price: float):
-        super().__init__(message)
-        self.calculated_price = calculated_price
-        self.min_price = min_price
-        self.max_price = max_price
+from .new_price_processor import NewPriceProcessor
+from ..utils.exceptions import SkipProductRepricing, PriceBoundsError
 
 
 class BaseStrategy(ABC):
@@ -73,7 +64,7 @@ class BaseStrategy(ABC):
         rounded_price = decimal_price.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         return float(rounded_price)
     
-    def validate_price_bounds(self, price: float, tier: Any = None) -> float:
+    def validate_price_bounds(self, price: float) -> float | None:
         """
         Validate that price is within product's min/max bounds.
         
@@ -89,19 +80,17 @@ class BaseStrategy(ABC):
         """
         if price is None:
             return None
-        
-        # Use tier bounds if provided, otherwise product bounds
-        target = tier or self.product
+
         
         # Get min/max prices with better handling of Mock objects
         try:
-            min_price = getattr(target, 'min_price', None)
+            min_price = getattr(self.product, 'min_price', None)
             if min_price is None:
-                min_price = getattr(target, 'min', None)
+                min_price = getattr(self.product, 'min', None)
             
-            max_price = getattr(target, 'max_price', None) 
+            max_price = getattr(self.product, 'max_price', None)
             if max_price is None:
-                max_price = getattr(target, 'max', None)
+                max_price = getattr(self.product, 'max', None)
             
             # Check if we got Mock objects or actual None/numbers
             from unittest.mock import Mock
@@ -138,7 +127,7 @@ class BaseStrategy(ABC):
         
         return price
     
-    def process_price_with_bounds_check(self, raw_price: float, seller_id: str, asin: str, tier: Any = None) -> float:
+    def process_price_with_bounds_check(self, raw_price: float, seller_id: str, asin: str) -> float:
         """
         Process price through NewPriceProcessor and validate bounds.
         
@@ -146,7 +135,6 @@ class BaseStrategy(ABC):
             raw_price: Raw calculated price
             seller_id: Seller ID
             asin: Product ASIN
-            tier: Optional tier for B2B products
             
         Returns:
             Processed and validated price
@@ -155,16 +143,14 @@ class BaseStrategy(ABC):
             PriceBoundsError: If processed price is outside bounds
         """
         # First validate raw price bounds
-        validated_raw_price = self.validate_price_bounds(raw_price, tier)
-        
-        # Process through NewPriceProcessor
-        target = tier or self.product
-        new_price_processor = NewPriceProcessor(target)
+        validated_raw_price = self.validate_price_bounds(raw_price)
+
+        new_price_processor = NewPriceProcessor(self.product)
         processed_price = new_price_processor.process_price(validated_raw_price, seller_id, asin)
         processed_price = self.round_price(processed_price)
         
         # Validate processed price bounds (in case processor changed it)
-        final_price = self.validate_price_bounds(processed_price, tier)
+        final_price = self.validate_price_bounds(processed_price)
         
         return final_price
     

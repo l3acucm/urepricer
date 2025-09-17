@@ -7,8 +7,8 @@ from datetime import datetime, timezone
 from loguru import logger
 
 from ..schemas.messages import (
-    AmazonSQSMessage, WalmartWebhookMessage, ProcessedOfferData,
-    AmazonOfferChange, WalmartOfferChange
+    WalmartWebhookMessage, ProcessedOfferData, WalmartOfferChange, ComprehensiveCompetitionData,
+    CompetitorInfo
 )
 
 
@@ -58,10 +58,10 @@ class MessageProcessor:
                 trigger_data.get("TimeOfOfferChange")
             )
 
-            # Extract competitive pricing from Summary and Offers
-            competitor_price = self._extract_competitor_price(summary_data, item_condition)
-            buybox_winner = self._extract_buybox_winner(offers_data)
-            total_offers = self._extract_total_offers(summary_data)
+            # Extract comprehensive competitive data for all strategies
+            competition_data = self._extract_comprehensive_competition_data(
+                summary_data, offers_data, item_condition
+            )
             
             # For seller_id, try to extract from offers if not in trigger
             seller_id = trigger_data.get("SellerId") or self._extract_target_seller(offers_data, asin)
@@ -75,10 +75,14 @@ class MessageProcessor:
                 event_time=time_of_change,
                 item_condition=item_condition.upper(),
                 
-                # Extracted competitive pricing
-                competitor_price=competitor_price,
-                buybox_winner=buybox_winner,
-                total_offers=total_offers,
+                # Comprehensive competition data
+                competition_data=competition_data,
+                
+                # Legacy fields for backward compatibility
+                lowest_price=competition_data.lowest_price_competitor.price if competition_data.lowest_price_competitor else None,
+                lowest_price_competitor=competition_data.lowest_price_competitor.seller_id if competition_data.lowest_price_competitor else None,
+                buybox_winner=competition_data.buybox_winner.seller_id if competition_data.buybox_winner else None,
+                total_offers=competition_data.total_offers,
                 
                 # Include raw data for detailed processing
                 raw_offers=offers_data,
@@ -91,9 +95,9 @@ class MessageProcessor:
                     "asin": processed_data.product_id,
                     "seller_id": processed_data.seller_id,
                     "marketplace": processed_data.marketplace,
-                    "competitor_price": competitor_price,
-                    "buybox_winner": buybox_winner,
-                    "total_offers": total_offers
+                    "competitor_price": processed_data.lowest_price,
+                    "buybox_winner": processed_data.buybox_winner,
+                    "total_offers": processed_data.total_offers
                 }
             )
             
@@ -133,8 +137,8 @@ class MessageProcessor:
                 offer_change=offer_change
             )
             
-            # Extract competition data
-            competitor_price = self._extract_walmart_competitor_price(offer_change)
+            # Extract competition data for Walmart
+            competition_data = self._extract_walmart_competition_data(offer_change)
             
             # Normalize to ProcessedOfferData
             processed_data = ProcessedOfferData(
@@ -144,9 +148,16 @@ class MessageProcessor:
                 platform="WALMART",
                 event_time=offer_change.event_time,
                 item_condition="NEW",  # Walmart typically deals with new items
-                competitor_price=competitor_price,
-                buybox_winner=offer_change.current_buybox_winner,
-                total_offers=len(offer_change.offers) if offer_change.offers else None,
+                
+                # Comprehensive competition data
+                competition_data=competition_data,
+                
+                # Legacy fields for backward compatibility
+                lowest_price=competition_data.lowest_price_competitor.price if competition_data.lowest_price_competitor else None,
+                lowest_price_competitor=competition_data.lowest_price_competitor.seller_id if competition_data.lowest_price_competitor else None,
+                buybox_winner=competition_data.buybox_winner.seller_id if competition_data.buybox_winner else None,
+                total_offers=competition_data.total_offers,
+                
                 raw_offers=offer_change.offers
             )
             
@@ -209,71 +220,205 @@ class MessageProcessor:
         
         return marketplace_mapping.get(marketplace_id, "US")
     
-    def _extract_walmart_competitor_price(self, offer_change: WalmartOfferChange) -> Optional[float]:
-        """Extract the best competitor price from Walmart offers."""
-        if not offer_change.offers:
-            return offer_change.current_buybox_price
+    def _extract_walmart_competition_data(self, offer_change: WalmartOfferChange) -> ComprehensiveCompetitionData:
+        """Extract competition data from Walmart offer change."""
+        all_competitors = []
+        lowest_price_competitor = None
+        buybox_winner = None
         
-        # Filter out our own offers and find the lowest price
-        competitor_prices = [
-            offer.get("price", 0) 
-            for offer in offer_change.offers 
-            if offer.get("sellerId") != offer_change.seller_id and offer.get("price")
-        ]
+        if offer_change.offers:
+            # Extract all competitors (excluding ourselves)
+            for offer in offer_change.offers:
+                seller_id = offer.get("sellerId", "")
+                price = offer.get("price")
+                
+                if seller_id != offer_change.seller_id and price:
+                    competitor = CompetitorInfo(
+                        seller_id=seller_id,
+                        price=float(price),
+                        is_fba=None,  # Walmart doesn't have FBA concept
+                        is_buybox_winner=seller_id == offer_change.current_buybox_winner,
+                        condition="NEW"  # Walmart typically deals with new items
+                    )
+                    all_competitors.append(competitor)
+            
+            # Find lowest price competitor
+            if all_competitors:
+                lowest_price_competitor = min(all_competitors, key=lambda x: x.price)
+            
+            # Find buybox winner
+            if offer_change.current_buybox_winner:
+                buybox_winner = next(
+                    (comp for comp in all_competitors if comp.seller_id == offer_change.current_buybox_winner),
+                    None
+                )
         
-        if competitor_prices:
-            return min(competitor_prices)
+        # If no competitors found but we have buybox info, create competitor from buybox data
+        if not lowest_price_competitor and offer_change.current_buybox_price:
+            if offer_change.current_buybox_winner and offer_change.current_buybox_winner != offer_change.seller_id:
+                competitor = CompetitorInfo(
+                    seller_id=offer_change.current_buybox_winner,
+                    price=offer_change.current_buybox_price,
+                    is_fba=None,
+                    is_buybox_winner=True,
+                    condition="NEW"
+                )
+                lowest_price_competitor = competitor
+                buybox_winner = competitor
+                all_competitors = [competitor]
         
-        return offer_change.current_buybox_price
+        return ComprehensiveCompetitionData(
+            lowest_price_competitor=lowest_price_competitor,
+            lowest_fba_competitor=None,  # Walmart doesn't have FBA
+            buybox_winner=buybox_winner,
+            total_offers=len(offer_change.offers) if offer_change.offers else None,
+            all_competitors=all_competitors
+        )
     
-    def _extract_competitor_price(self, summary_data: Dict[str, Any], item_condition: str) -> Optional[float]:
-        """Extract best competitor price from Summary data."""
+    def _extract_comprehensive_competition_data(
+        self, 
+        summary_data: Dict[str, Any], 
+        offers_data: List[Dict[str, Any]], 
+        item_condition: str
+    ) -> ComprehensiveCompetitionData:
+        """Extract comprehensive competitive data for all strategy types."""
+        
+        # Extract all competitors from offers data
+        all_competitors = self._extract_all_competitors(offers_data, item_condition)
+        
+        # Find specific competitors for each strategy type
+        lowest_price_competitor = self._find_lowest_price_competitor(summary_data, item_condition)
+        lowest_fba_competitor = self._find_lowest_fba_competitor(offers_data, item_condition)
+        buybox_winner = self._find_buybox_winner(offers_data, item_condition)
+        
+        # Extract total offers
+        total_offers = self._extract_total_offers(summary_data)
+        
+        return ComprehensiveCompetitionData(
+            lowest_price_competitor=lowest_price_competitor,
+            lowest_fba_competitor=lowest_fba_competitor,
+            buybox_winner=buybox_winner,
+            total_offers=total_offers,
+            all_competitors=all_competitors
+        )
+    
+    def _extract_all_competitors(self, offers_data: List[Dict[str, Any]], item_condition: str) -> List[CompetitorInfo]:
+        """Extract all competitors from offers data."""
+        competitors = []
+        
+        for offer in offers_data:
+            # Filter by condition
+            offer_condition = offer.get("SubCondition", "").lower()
+            if offer_condition != item_condition.lower():
+                continue
+                
+            # Extract price (prefer landed price, fallback to listing price)
+            price = self._extract_price_from_offer(offer)
+            if price is None:
+                continue
+                
+            competitor = CompetitorInfo(
+                seller_id=offer.get("SellerId", ""),
+                price=price,
+                is_fba=offer.get("IsFulfilledByAmazon", False),
+                is_buybox_winner=offer.get("IsBuyBoxWinner", False),
+                condition=offer_condition
+            )
+            competitors.append(competitor)
+        
+        return sorted(competitors, key=lambda x: x.price)
+    
+    def _find_lowest_price_competitor(self, summary_data: Dict[str, Any], item_condition: str) -> Optional[CompetitorInfo]:
+        """Find the overall lowest price competitor (for LOWEST_PRICE strategy)."""
         if not summary_data:
             return None
         
-        # Try lowest prices first (most reliable for competitive pricing)
         lowest_prices = summary_data.get("LowestPrices", [])
-        lowest_price = None
-        if lowest_prices:
-            for price_info in lowest_prices:
-                condition = price_info.get("Condition", "").lower()
-                if condition == item_condition.lower():
-                    # Prefer landed price (includes shipping), fallback to listing price
-                    landed_price = price_info.get("LandedPrice", {})
-                    listing_price = price_info.get("ListingPrice", {})
-                    price_to_compare = None
-                    if landed_price and landed_price.get("Amount"):
-                        price_to_compare = float(landed_price["Amount"])
-                    elif listing_price and listing_price.get("Amount"):
-                        price_to_compare = float(listing_price["Amount"])
-                    if price_to_compare is not None and (lowest_price is None or price_to_compare < lowest_price):
-                        lowest_price = price_to_compare
-
-        # Try buy box prices if lowest prices not available
-        buybox_prices = summary_data.get("BuyBoxPrices", [])
-        if buybox_prices:
-            for price_info in buybox_prices:
-                condition = price_info.get("Condition", "").lower()
-                if condition == item_condition.lower():
-                    landed_price = price_info.get("LandedPrice", {})
-                    listing_price = price_info.get("ListingPrice", {})
-                    
-                    if landed_price and landed_price.get("Amount"):
-                        return float(landed_price["Amount"])
-                    elif listing_price and listing_price.get("Amount"):
-                        return float(listing_price["Amount"])
-        
+        for price_info in lowest_prices:
+            condition = price_info.get("Condition", "").lower()
+            if condition == item_condition.lower():
+                price = self._extract_price_from_price_info(price_info)
+                if price is not None:
+                    return CompetitorInfo(
+                        seller_id=price_info.get("SellerId", ""),
+                        price=price,
+                        is_fba=None,  # Not available in summary data
+                        is_buybox_winner=None,  # Not available in summary data
+                        condition=condition
+                    )
         return None
     
-    def _extract_buybox_winner(self, offers_data: List[Dict[str, Any]]) -> Optional[str]:
-        """Extract buy box winner seller ID from offers."""
+    def _find_lowest_fba_competitor(self, offers_data: List[Dict[str, Any]], item_condition: str) -> Optional[CompetitorInfo]:
+        """Find the lowest FBA competitor (for LOWEST_FBA_PRICE strategy)."""
+        fba_competitors = []
+        
+        for offer in offers_data:
+            # Filter by condition and FBA status
+            offer_condition = offer.get("SubCondition", "").lower()
+            if (offer_condition != item_condition.lower() or 
+                not offer.get("IsFulfilledByAmazon", False)):
+                continue
+                
+            price = self._extract_price_from_offer(offer)
+            if price is not None:
+                fba_competitors.append(CompetitorInfo(
+                    seller_id=offer.get("SellerId", ""),
+                    price=price,
+                    is_fba=True,
+                    is_buybox_winner=offer.get("IsBuyBoxWinner", False),
+                    condition=offer_condition
+                ))
+        
+        # Return the cheapest FBA competitor
+        return min(fba_competitors, key=lambda x: x.price) if fba_competitors else None
+    
+    def _find_buybox_winner(self, offers_data: List[Dict[str, Any]], item_condition: str) -> Optional[CompetitorInfo]:
+        """Find the buybox winner (for MATCH_BUYBOX strategy)."""
         for offer in offers_data:
             if offer.get("IsBuyBoxWinner"):
-                return offer.get("SellerId")
+                # Verify condition matches
+                offer_condition = offer.get("SubCondition", "").lower()
+                if offer_condition == item_condition.lower():
+                    price = self._extract_price_from_offer(offer)
+                    if price is not None:
+                        return CompetitorInfo(
+                            seller_id=offer.get("SellerId", ""),
+                            price=price,
+                            is_fba=offer.get("IsFulfilledByAmazon", False),
+                            is_buybox_winner=True,
+                            condition=offer_condition
+                        )
+        return None
+    
+    def _extract_price_from_offer(self, offer: Dict[str, Any]) -> Optional[float]:
+        """Extract price from offer data, preferring landed price."""
+        # Prefer landed price (includes shipping), fallback to listing price
+        landed_price = offer.get("LandedPrice", {})
+        listing_price = offer.get("ListingPrice", {})
+        
+        if landed_price and landed_price.get("Amount"):
+            return float(landed_price["Amount"])
+        elif listing_price and listing_price.get("Amount"):
+            return float(listing_price["Amount"])
+        return None
+    
+    def _extract_price_from_price_info(self, price_info: Dict[str, Any]) -> Optional[float]:
+        """Extract price from summary price info."""
+        # Prefer landed price (includes shipping), fallback to listing price
+        landed_price = price_info.get("LandedPrice", {})
+        listing_price = price_info.get("ListingPrice", {})
+        
+        if landed_price and landed_price.get("Amount"):
+            return float(landed_price["Amount"])
+        elif listing_price and listing_price.get("Amount"):
+            return float(listing_price["Amount"])
         return None
     
     def _extract_total_offers(self, summary_data: Dict[str, Any]) -> Optional[int]:
         """Extract total number of offers from Summary."""
+        if not summary_data:
+            return None
+            
         number_of_offers = summary_data.get("NumberOfOffers", [])
         if number_of_offers:
             return sum(offer_count.get("OfferCount", 0) for offer_count in number_of_offers)

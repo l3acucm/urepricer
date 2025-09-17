@@ -76,11 +76,6 @@ class RedisService:
                 
                 return product_data
             
-            # Alternative structure check: direct nested hash
-            seller_data_json = await redis_client.hget(f"{redis_key}:{seller_id}", sku)
-            if seller_data_json:
-                return json.loads(seller_data_json)
-            
             self.logger.warning(
                 f"Product data not found for {asin}",
                 extra={"asin": asin, "seller_id": seller_id, "sku": sku}

@@ -4,7 +4,7 @@ Consolidates all environment variables from the original modules.
 """
 from functools import lru_cache
 from typing import List, Optional
-from pydantic import Field, PostgresDsn, RedisDsn
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 

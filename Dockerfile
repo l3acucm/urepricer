@@ -10,8 +10,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Set work directory
 WORKDIR /app
 
-# Install only postgresql-client (build tools already in python:3.13)
-RUN apt-get update && apt-get install -y postgresql-client && rm -rf /var/lib/apt/lists/*
+# No additional system packages needed for Redis-only application
 
 # Install Poetry
 RUN pip install poetry

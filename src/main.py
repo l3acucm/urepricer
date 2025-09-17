@@ -8,7 +8,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from src.core.config import get_settings
-# from src.core.database import create_tables
 from src.api.webhook_router import router as webhook_router
 from src.services.sqs_consumer import get_sqs_consumer
 # from src.api.accounts.router import router as accounts_router
@@ -22,8 +21,7 @@ async def lifespan(app: FastAPI):
     """Application lifespan events."""
     logger.info("Starting Arbitrage Hero API...")
     
-    # Create database tables if needed
-    # await create_tables()
+    # Redis-only application - no database tables needed
     
     # Note: SQS consumer should be run separately via: python3 -m src.services.sqs_consumer
     

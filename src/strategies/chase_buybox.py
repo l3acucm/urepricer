@@ -14,44 +14,17 @@ class ChaseBuyBox(BaseStrategy):
         self._apply_standard_pricing()
     
     def _apply_standard_pricing(self) -> None:
-        """Apply strategy to standard (non-B2B) product."""
-        try:
-            if not self.product.competitor_price:
-                raise SkipProductRepricing("No competitor price available")
-            
-            seller_id = getattr(self.product, 'seller_id', getattr(self.product.account, 'seller_id', 'unknown'))
-            asin = self.product.asin
-            
-            # Calculate competitive price
-            raw_price = self.calculate_competitive_price(
-                self.product.competitor_price,
-                self.product.strategy.beat_by
-            )
-            
-            
-            # Process price with bounds checking
-            processed_price = self.process_price_with_bounds_check(
-                raw_price, seller_id, asin
-            )
-            
-            # Set the results
-            self.product.updated_price = processed_price
-            self.set_strategy_metadata(self.product)
-            self.product.message = self.get_product_pricing_message(self.product, self.get_strategy_name())
-            
-            self.logger.info(
-                f"Standard pricing applied: {processed_price}",
-                extra={
-                    "competitor_price": self.product.competitor_price,
-                    "beat_by": self.product.strategy.beat_by,
-                    "final_price": processed_price
-                }
-            )
-            
-        except (SkipProductRepricing, PriceBoundsError) as e:
-            self.logger.warning(f"Standard pricing failed: {e}")
-            # Re-raise the exception so caller knows pricing failed
-            raise e
-        except Exception as e:
-            self.logger.error(f"Unexpected error in standard pricing: {e}")
-            raise SkipProductRepricing(f"Standard pricing error: {e}")
+        """Apply strategy to standard product."""
+        if not self.product.competitor_price:
+            raise SkipProductRepricing("No competitor price available")
+        
+        # Calculate new price: competitor price + beat_by
+        new_price = self.product.competitor_price + self.product.strategy.beat_by
+        
+        # Validate bounds
+        self.validate_price_bounds(new_price)
+        
+        # Set results
+        self.product.updated_price = new_price
+        self.set_strategy_metadata(self.product)
+        self.product.message = self.get_product_pricing_message(self.product, self.get_strategy_name())

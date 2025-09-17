@@ -1,9 +1,5 @@
 from typing import Optional, Any
-
-
-class SkipProductRepricing(Exception):
-    """Exception raised when product repricing should be skipped."""
-    pass
+from ..utils.exceptions import SkipProductRepricing
 
 
 class NewPriceProcessor:
@@ -38,7 +34,7 @@ class NewPriceProcessor:
 
     def _apply_price_rule(self, rule_type: str, seller_id: Optional[str], asin: Optional[str]) -> float:
         """
-        Apply the competitor rule to the given tier.
+        Apply the competitor rule to the given product.
 
         Args:
             rule_type: The rule to apply [min_price_rule, max_price_rule]

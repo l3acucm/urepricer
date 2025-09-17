@@ -4,7 +4,8 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 from distutils.util import strtobool
 
-from ..models.accounts import Product, Tier, LogEntry
+from ..models.product import Product
+from typing import Any as LogEntry  # LogEntry type placeholder - needs proper definition
 from ..core.config import get_settings
 
 
@@ -24,27 +25,12 @@ class AmazonProductPrice:
             "seller_id": product.account.seller_id
         }
 
-        if not product.is_b2b:
-            data_hash['Standard'] = self._get_dataclass_attrs(product, self._get_amazon_output_list())
-            log_entry = self._get_dataclass_attrs(product, self._get_amazon_logs())
-            log_entry['quantity'] = 1
-            log_entry['product_type'] = 'Standard'
-            log_entry['time'] = datetime.now()
-
-        else:
-            tier_count = 1
-            tiers = {}
-            data_hash["B2B"] = self._get_dataclass_attrs(product, self._get_amazon_b2b_output_list())
-            log_entry = self._get_dataclass_attrs(product, self._get_amazon_b2b_logs())
-            for tier in product.tiers.values():
-                tiers[f"tier{tier_count}"] = self._get_b2b_dataclass_attrs(
-                    tier, self._get_amazon_tier_output_list())
-                log_entry[f"tier{tier_count}"] = self._get_b2b_dataclass_attrs(
-                    tier, self._get_amazon_tier_logs())
-                tier_count += 1
-            data_hash['B2B']['tiers'] = tiers
-            log_entry['product_type'] = 'Business'
-            log_entry['time'] = datetime.now().isoformat()
+        # Standard product data only (B2B support removed)
+        data_hash['Standard'] = self._get_dataclass_attrs(product, self._get_amazon_output_list())
+        log_entry = self._get_dataclass_attrs(product, self._get_amazon_logs())
+        log_entry['quantity'] = 1
+        log_entry['product_type'] = 'Standard'
+        log_entry['time'] = datetime.now()
 
         if not self.debug:
             self._save_data_in_redis(redis_list, sku, data_hash)
@@ -62,14 +48,6 @@ class AmazonProductPrice:
                 data_hash[data] = None
         return data_hash
 
-    def _get_b2b_dataclass_attrs(self, tier: Tier, output_list: list) -> Dict[str, Any]:
-        data_hash = {}
-        for data in output_list:
-            try:
-                data_hash[data] = getattr(tier, data)
-            except AttributeError:
-                data_hash[data] = None
-        return data_hash
 
     def _save_log_entry(self, log_entry: LogEntry) -> None:
         print(f"Saving log entry: {log_entry}")
@@ -89,14 +67,4 @@ class AmazonProductPrice:
     def _get_amazon_logs(self) -> list:
         return ['asin', 'sku', 'seller_id', 'updated_price', 'listed_price', 'time']
 
-    def _get_amazon_b2b_output_list(self) -> list:
-        return ['asin', 'sku', 'seller_id']
 
-    def _get_amazon_b2b_logs(self) -> list:
-        return ['asin', 'sku', 'seller_id', 'time']
-
-    def _get_amazon_tier_output_list(self) -> list:
-        return ['tier_price', 'quantity']
-
-    def _get_amazon_tier_logs(self) -> list:
-        return ['tier_price', 'quantity']

@@ -434,7 +434,7 @@ class MessageProcessor:
         # Look up the ASIN in Redis to find our seller for this product
         try:
             import redis
-            from ..core.config import get_settings
+            from core.config import get_settings
             
             settings = get_settings()
             

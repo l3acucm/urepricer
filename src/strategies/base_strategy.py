@@ -176,13 +176,13 @@ class BaseStrategy(ABC):
         competitor_price = getattr(target, 'competitor_price', getattr(self.product, 'competitor_price', 'unknown'))
         
         strategy_config = self.product.strategy
-        compete_with = getattr(strategy_config, 'compete_with', 'unknown')
+        strategy_type = getattr(strategy_config, 'type', 'unknown')
         beat_by = getattr(strategy_config, 'beat_by', 0)
         
         message_parts = [
             f"Strategy {self.product.strategy_id}",
-            f"compete with {compete_with}",
-            f"beat by {beat_by}",
+            f"Type {strategy_type}",
+            f"Beat by {beat_by}",
             f"Applied strategy {strategy_name}"
         ]
         

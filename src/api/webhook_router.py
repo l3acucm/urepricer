@@ -1,16 +1,19 @@
 """Webhook endpoints for Amazon and Walmart integration."""
 
-from typing import Dict, Any
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from typing import Dict, Any, Optional
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
 from datetime import datetime, UTC
 from loguru import logger
 import decimal
 from decimal import Decimal
+import json
+import boto3
+from botocore.exceptions import ClientError
 
 from ..services.sqs_consumer import get_sqs_consumer
 from ..services.redis_service import redis_service
 from ..services.repricing_orchestrator import RepricingOrchestrator
-from ..utils.exceptions import PriceValidationError
+from ..core.config import get_settings
 
 router = APIRouter()
 
@@ -417,3 +420,220 @@ async def _process_walmart_webhook_async(webhook_data: Dict[str, Any]):
             f"Background processing failed for Walmart webhook: {str(e)}",
             extra={"item_id": webhook_data.get("itemId", "unknown")}
         )
+
+
+# Admin endpoints for MySQL population and data management
+
+@router.post("/admin/populate-from-mysql")
+async def populate_from_mysql(
+    background_tasks: BackgroundTasks,
+    batch_size: int = Query(1000, description="Number of records to process per batch")
+):
+    """
+    Populate Redis with data from MySQL database.
+    This will clear all existing Redis data and repopulate from MySQL.
+    """
+    logger.info("MySQL to Redis population requested")
+    
+    # Add the population task to background
+    background_tasks.add_task(_populate_from_mysql_async, batch_size)
+    
+    return {
+        "status": "accepted",
+        "message": "MySQL to Redis population started in background",
+        "batch_size": batch_size,
+        "started_at": datetime.now(UTC).isoformat()
+    }
+
+
+@router.get("/admin/list-entries")
+async def list_redis_entries(
+    seller_id: Optional[str] = Query(None, description="Filter by seller ID"),
+    region: Optional[str] = Query(None, description="Filter by region (uk/us)"),
+    asin: Optional[str] = Query(None, description="Filter by specific ASIN"),
+    limit: int = Query(100, description="Maximum number of entries to return"),
+    offset: int = Query(0, description="Number of entries to skip")
+):
+    """
+    List Redis entries with their strategies and calculated prices.
+    Supports filtering by seller ID, region, and ASIN.
+    """
+    try:
+        # Get Redis connection
+        redis_client = await redis_service.get_connection()
+        
+        # Get all ASIN keys
+        pattern = f"ASIN_{asin}" if asin else "ASIN_*"
+        asin_keys = await redis_client.keys(pattern)
+        
+        # Apply pagination
+        paginated_keys = asin_keys[offset:offset + limit] if not asin else asin_keys
+        
+        entries = []
+        for key in paginated_keys:
+            # Extract ASIN from key
+            asin_value = key.replace("ASIN_", "")
+            
+            # Get all fields (seller_id:sku pairs) for this ASIN
+            asin_data = await redis_client.hgetall(key)
+            
+            for field, product_json in asin_data.items():
+                if ":" not in field:
+                    continue
+                    
+                product_seller_id, sku = field.split(":", 1)
+                
+                # Apply seller ID filter
+                if seller_id and product_seller_id != seller_id:
+                    continue
+                
+                # Parse product data
+                try:
+                    product_data = json.loads(product_json)
+                except json.JSONDecodeError:
+                    continue
+                
+                # Get strategy information
+                strategy_id = product_data.get("strategy_id")
+                strategy_data = {}
+                if strategy_id:
+                    strategy_key = f"strategy.{strategy_id}"
+                    strategy_data = await redis_client.hgetall(strategy_key)
+                
+                # Get calculated prices if any
+                calc_price_key = f"CALCULATED_PRICES:{product_seller_id}"
+                calculated_prices = await redis_client.hgetall(calc_price_key)
+                calculated_price = None
+                
+                if sku in calculated_prices:
+                    try:
+                        calculated_price = json.loads(calculated_prices[sku])
+                    except json.JSONDecodeError:
+                        pass
+                
+                # Determine region based on seller ID pattern
+                detected_region = None
+                if product_seller_id.startswith("UK_") or "UK" in product_seller_id:
+                    detected_region = "uk"
+                elif product_seller_id.startswith("US_") or "US" in product_seller_id:
+                    detected_region = "us"
+                elif len(product_seller_id) > 10:  # Amazon seller IDs are typically longer
+                    detected_region = "unknown"
+                
+                # Apply region filter
+                if region and detected_region != region:
+                    continue
+                
+                entry = {
+                    "asin": asin_value,
+                    "seller_id": product_seller_id,
+                    "sku": sku,
+                    "region": detected_region,
+                    "product_data": product_data,
+                    "strategy": strategy_data,
+                    "calculated_price": calculated_price
+                }
+                
+                entries.append(entry)
+        
+        return {
+            "status": "success",
+            "total_keys_found": len(asin_keys),
+            "entries_returned": len(entries),
+            "offset": offset,
+            "limit": limit,
+            "filters_applied": {
+                "seller_id": seller_id,
+                "region": region,
+                "asin": asin
+            },
+            "entries": entries
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to list Redis entries: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/send-test-sqs")
+async def send_test_sqs_message(
+    message_data: Dict[str, Any],
+    queue_type: str = Query("any_offer", description="Queue type: any_offer or feed_processing")
+):
+    """
+    Send a test SQS message to the specified queue.
+    """
+    try:
+        settings = get_settings()
+        
+        # Determine queue URL
+        if queue_type == "any_offer":
+            queue_url = settings.sqs_queue_url_any_offer
+        elif queue_type == "feed_processing":
+            queue_url = settings.sqs_queue_url_feed_processing
+        else:
+            raise HTTPException(status_code=400, detail="Invalid queue_type. Use 'any_offer' or 'feed_processing'")
+        
+        # Create SQS client
+        if settings.aws_endpoint_url:
+            # LocalStack
+            sqs_client = boto3.client(
+                'sqs',
+                endpoint_url=settings.aws_endpoint_url,
+                region_name=settings.aws_region,
+                aws_access_key_id=settings.aws_access_key_id,
+                aws_secret_access_key=settings.aws_secret_access_key
+            )
+        else:
+            # Production AWS
+            sqs_client = boto3.client('sqs', region_name=settings.aws_region)
+        
+        # Send message
+        message_body = json.dumps(message_data)
+        response = sqs_client.send_message(
+            QueueUrl=queue_url,
+            MessageBody=message_body
+        )
+        
+        logger.info(f"Test SQS message sent to {queue_type} queue")
+        
+        return {
+            "status": "success",
+            "message": "Test SQS message sent successfully",
+            "queue_url": queue_url,
+            "queue_type": queue_type,
+            "message_id": response.get("MessageId"),
+            "sent_at": datetime.now(UTC).isoformat()
+        }
+        
+    except ClientError as e:
+        error_msg = f"AWS SQS error: {e.response['Error']['Message']}"
+        logger.error(error_msg)
+        raise HTTPException(status_code=500, detail=error_msg)
+    except Exception as e:
+        logger.error(f"Failed to send test SQS message: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _populate_from_mysql_async(batch_size: int):
+    """Background task to populate Redis from MySQL."""
+    try:
+        from scripts.populate_from_mysql import MySQLRedisPopulator
+        
+        populator = MySQLRedisPopulator()
+        results = await populator.populate_all_data(batch_size)
+        
+        logger.info(
+            f"MySQL to Redis population completed",
+            extra={
+                "strategies_saved": results["strategies_saved"],
+                "uk_products_saved": results["uk_products_saved"],
+                "us_products_saved": results["us_products_saved"],
+                "total_products_saved": results["total_products_saved"],
+                "errors_count": len(results["errors"])
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"MySQL to Redis population failed: {str(e)}")
+        raise

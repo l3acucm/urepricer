@@ -1,6 +1,5 @@
 """Unified Product model combining ProductBase and Product classes."""
 
-from datetime import datetime
 from decimal import Decimal
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field, field_validator
@@ -8,17 +7,17 @@ from pydantic import BaseModel, Field, field_validator
 
 class Strategy(BaseModel):
     """Unified Strategy model."""
-    compete_with: str = Field(default="MATCH_BUYBOX", description="Competition type")
+    type: str = Field(default="MATCH_BUYBOX", description="Competition type")
     beat_by: Decimal = Field(default=Decimal('0.0'), decimal_places=2, description="Amount to beat competitor by")
     min_price_rule: str = Field(default="JUMP_TO_MIN", description="Min price rule")
     max_price_rule: str = Field(default="JUMP_TO_MAX", description="Max price rule")
     
-    @field_validator('compete_with')
+    @field_validator('type')
     @classmethod
-    def validate_compete_with(cls, v):
+    def validate_type(cls, v):
         allowed = ['LOWEST_PRICE', 'LOWEST_FBA_PRICE', 'MATCH_BUYBOX', 'FBA_LOWEST']
         if v not in allowed:
-            raise ValueError(f'compete_with must be one of: {allowed}')
+            raise ValueError(f'type must be one of: {allowed}')
         return v
     
     @field_validator('min_price_rule', 'max_price_rule')
@@ -65,7 +64,7 @@ class Product(BaseModel):
     @field_validator('item_condition')
     @classmethod
     def validate_condition(cls, v):
-        allowed_conditions = ['New', 'Used', 'Collectible', 'Refurbished']
+        allowed_conditions = ['NewItem', 'Used', 'Collectible', 'Refurbished']
         if v not in allowed_conditions:
             raise ValueError(f'Item condition must be one of: {allowed_conditions}')
         return v

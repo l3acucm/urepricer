@@ -57,11 +57,11 @@ class TestDataPopulator:
         
         # Predefined strategy configurations
         self.strategies = {
-            "1": {"compete_with": "LOWEST_PRICE", "beat_by": "-0.01", "min_price_rule": "JUMP_TO_MIN", "max_price_rule": "JUMP_TO_MAX"},
-            "2": {"compete_with": "MATCH_BUYBOX", "beat_by": "-0.01", "min_price_rule": "JUMP_TO_MIN", "max_price_rule": "JUMP_TO_MAX"},
-            "3": {"compete_with": "FBA_LOWEST", "beat_by": "-0.05", "min_price_rule": "JUMP_TO_MIN", "max_price_rule": "JUMP_TO_MAX"},
-            "4": {"compete_with": "LOWEST_PRICE", "beat_by": "0.00", "min_price_rule": "DO_NOTHING", "max_price_rule": "DO_NOTHING"},
-            "5": {"compete_with": "MATCH_BUYBOX", "beat_by": "-0.10", "min_price_rule": "DEFAULT_PRICE", "max_price_rule": "DEFAULT_PRICE"},
+            "1": {"type": "LOWEST_PRICE", "beat_by": "-0.01", "min_price_rule": "JUMP_TO_MIN", "max_price_rule": "JUMP_TO_MAX"},
+            "2": {"type": "MATCH_BUYBOX", "beat_by": "-0.01", "min_price_rule": "JUMP_TO_MIN", "max_price_rule": "JUMP_TO_MAX"},
+            "3": {"type": "FBA_LOWEST", "beat_by": "-0.05", "min_price_rule": "JUMP_TO_MIN", "max_price_rule": "JUMP_TO_MAX"},
+            "4": {"type": "LOWEST_PRICE", "beat_by": "0.00", "min_price_rule": "DO_NOTHING", "max_price_rule": "DO_NOTHING"},
+            "5": {"type": "MATCH_BUYBOX", "beat_by": "-0.10", "min_price_rule": "DEFAULT_PRICE", "max_price_rule": "DEFAULT_PRICE"},
         }
         
         # Product categories for realistic ASINs

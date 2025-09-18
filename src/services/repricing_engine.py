@@ -133,7 +133,7 @@ class RepricingEngine:
         from decimal import Decimal
         
         strategy = Strategy(
-            compete_with=strategy_data.get('compete_with', 'LOWEST_PRICE'),
+            type=strategy_data.get('type', 'LOWEST_PRICE'),
             beat_by=Decimal(str(strategy_data.get('beat_by', 0.0))),
             min_price_rule=strategy_data.get('min_price_rule', 'JUMP_TO_MIN'),
             max_price_rule=strategy_data.get('max_price_rule', 'JUMP_TO_MAX')
@@ -158,7 +158,7 @@ class RepricingEngine:
         if await self._check_self_competition(product, offer_data):
             return RepricingDecision(
                 should_reprice=False,
-                reason=f"Self-competition detected for {strategy.compete_with} strategy",
+                reason=f"Self-competition detected for {strategy.type} strategy",
                 asin=asin,
                 sku=sku,
                 seller_id=seller_id,
@@ -256,7 +256,7 @@ class RepricingEngine:
             
             # Early strategy-aware self-competition detection
             if await self._check_self_competition(product, decision.competitor_data):
-                raise SkipProductRepricing(f"Self-competition detected for {product.strategy.compete_with} strategy on ASIN {product.asin} by seller {product.seller_id}")
+                raise SkipProductRepricing(f"Self-competition detected for {product.strategy.type} strategy on ASIN {product.asin} by seller {product.seller_id}")
 
             # Set clean competitor info for strategy (no self-competition)
             await self._set_clean_competitor_info(product, decision.competitor_data)
@@ -384,7 +384,7 @@ class RepricingEngine:
     
     async def _check_self_competition(self, product: Product, offer_data: ProcessedOfferData) -> bool:
         """Check if we're competing against ourselves based on strategy type."""
-        strategy_type = product.strategy.compete_with
+        strategy_type = product.strategy.type
         our_seller_id = product.seller_id
         competition_data = offer_data.competition_data
         
@@ -412,7 +412,7 @@ class RepricingEngine:
 
     async def _set_clean_competitor_info(self, product: Product, offer_data: ProcessedOfferData):
         """Set clean competitor information on product (no self-competition)."""
-        strategy_type = product.strategy.compete_with
+        strategy_type = product.strategy.type
         competition_data = offer_data.competition_data
         
         # Set strategy-specific competitor price and metadata

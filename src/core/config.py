@@ -36,6 +36,13 @@ class Settings(BaseSettings):
 
     # Logging
     log_level: str = Field(default="INFO", env="LOG_LEVEL")
+    
+    # MySQL Configuration
+    mysql_host: str = Field(default="localhost", env="MYSQL_HOST")
+    mysql_port: int = Field(default=3306, env="MYSQL_PORT")
+    mysql_database: str = Field(default="your_database_name", env="MYSQL_DATABASE")
+    mysql_username: str = Field(default="your_username", env="MYSQL_USERNAME")
+    mysql_password: str = Field(default="your_password", env="MYSQL_PASSWORD")
 
     class Config:
         env_file = ".env"

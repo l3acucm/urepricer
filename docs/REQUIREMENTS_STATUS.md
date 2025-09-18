@@ -32,15 +32,7 @@ This document tracks the implementation status of all requirements extracted fro
 | **SQS/Webhook Strategy-Based Triggers**      | Amazon AnyOfferChanged SQS messages and Walmart buy box webhook notifications trigger strategy-based repricing (ChaseBuyBox, MaximiseProfit, etc.) | ✅ | `test_e2e_sqs_repricing.py::test_sqs_message_triggers_repricing_success`, `test_e2e_fastapi_repricing.py::test_walmart_webhook_triggers_repricing_success` | System Requirements Analysis |
 | **Price Reset Triggers**                     | API endpoints to reset prices to default_price values without strategy calculation, with results stored in Redis                                   | ✅ | `test_pricing_endpoints.py::TestPriceResetAPI::test_price_reset_success`, `test_e2e_fastapi_repricing.py::test_price_reset_endpoint`                       | System Requirements Analysis |
 | **Manual Repricing Triggers**                | API endpoints to set prices to exact provided values without strategy calculation, with results stored in Redis                                    | ✅ | `test_pricing_endpoints.py::TestManualRepricingAPI::test_manual_repricing_success`, `test_e2e_fastapi_repricing.py::test_manual_repricing_endpoint`        | System Requirements Analysis |
-| **Handle Report Changes outside of Service** | If user changed price manually in Amazon/Walmart console it should affect repricing decision and price calculation                                 | ❌ | Bo                                                                                                                                                         | Question from Max            |
-
-### Future Enhancements
-
-| Requirement | Description | Implemented | Test Reference | Source |
-|-------------|-------------|:-----------:|----------------|---------|
-| **Profit Maximization Strategy** | Enhanced profit maximization with default fallback and buybox jumping | ✅ | `test_strategies.py::test_maximise_profit_strategy` | Future Development.html |
-| **Night-time Price Positioning** | Raise prices during non-peak hours with US/UK marketplace schedules | ❌ | - | Future Development.html |
-| **Feed Success Tracking** | Add success/error fields to feed submissions with status updates | ❌ | - | Future Development.html |
+| **Handle Report Changes outside of Service** | If user changed price manually in Amazon/Walmart console it should affect repricing decision and price calculation                                 | ❌ | Question from Max                                                                                                                                          | Question from Max            |
 
 ## Architecture Requirements
 
@@ -74,12 +66,6 @@ This document tracks the implementation status of all requirements extracted fro
 | Requirement | Description | Implemented | Test Reference | Source |
 |-------------|-------------|:-----------:|----------------|---------|
 | **Docker Containerization** | Containerize using Docker with build, execution, and registry publishing | ✅ | Manual verification with `Dockerfile.dev` | Repricer Deployment.html |
-
-### Infrastructure Components
-
-| Requirement | Description | Implemented | Test Reference | Source |
-|-------------|-------------|:-----------:|----------------|---------|
-| **Cluster Architecture** | Support multi-node Kubernetes cluster with proper networking | ❌ | - | Repricer Deployment.html |
 
 ### Monitoring and Maintenance
 

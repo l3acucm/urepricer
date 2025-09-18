@@ -49,6 +49,19 @@ graph TB
                 CALC_TTL["TTL: 2 hours (7200 seconds)"]
             end
         end
+        
+        subgraph RESET_RULES["Reset Rules Storage"]
+            subgraph RESET_KEYS["Reset Rule Keys (Hash Structure)"]
+                RESET_KEY["reset_rules.{userid}:{market}"]
+                subgraph RESET_FIELDS["Hash Fields"]
+                    RESET_enabled["price_reset_enabled: boolean"]
+                    RESET_time["price_reset_time: HH (00-23)"]
+                    RESET_resume_time["price_resume_time: HH (00-23)"]
+                    RESET_condition["product_condition: ALL"]
+                    RESET_market["market: uk|us|all"]
+                end
+            end
+        end
     end
     
     subgraph DATA_SOURCES["Data Population Sources"]
@@ -56,11 +69,12 @@ graph TB
             MYSQL_STRATEGIES["repricer_strategies table → strategy.{id}"]
             MYSQL_USERS["users table → seller ID mapping (uk_sellerId/us_sellerId)"]
             MYSQL_INVENTORY["inventory_<region> table → ASIN_{asin} with sellers"]
+            MYSQL_RESET_RULES["repricer_reset_rules table → reset_rules.{userid}:{market}"]
             MYSQL_SETTINGS["JSON settings field → strategy configuration"]
         end
 
     end
-    
+
     subgraph DATA_TYPES["Redis Data Types & Structure"]
         HASH_TYPE["HASH - Primary storage type for all data"]
         JSON_VALUES["JSON Strings - Complex nested product/price data"]
@@ -84,3 +98,5 @@ graph TB
     MYSQL_STRATEGIES --> STRATEGY_KEY
     MYSQL_INVENTORY --> ASIN_KEY
     MYSQL_USERS --> SELLER_SKU_FIELD
+    MYSQL_RESET_RULES --> RESET_KEY
+    RESET_KEY --> RESET_FIELDS

@@ -5,8 +5,8 @@ from typing import Any, Optional
 from decimal import Decimal, ROUND_HALF_UP
 from loguru import logger
 
-from .new_price_processor import NewPriceProcessor
-from ..utils.exceptions import SkipProductRepricing, PriceBoundsError
+from strategies.new_price_processor import NewPriceProcessor
+from utils.exceptions import SkipProductRepricing, PriceBoundsError
 
 
 class BaseStrategy(ABC):

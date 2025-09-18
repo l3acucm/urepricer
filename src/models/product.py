@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 class Strategy(BaseModel):
     """Unified Strategy model."""
     compete_with: str = Field(default="MATCH_BUYBOX", description="Competition type")
-    beat_by: Decimal = Field(default=Decimal('0.0'), ge=0, decimal_places=2, description="Amount to beat competitor by")
+    beat_by: Decimal = Field(default=Decimal('0.0'), decimal_places=2, description="Amount to beat competitor by")
     min_price_rule: str = Field(default="JUMP_TO_MIN", description="Min price rule")
     max_price_rule: str = Field(default="JUMP_TO_MAX", description="Max price rule")
     

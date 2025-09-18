@@ -1,5 +1,5 @@
 from typing import Optional, Any
-from ..utils.exceptions import SkipProductRepricing
+from utils.exceptions import SkipProductRepricing
 
 
 class NewPriceProcessor:

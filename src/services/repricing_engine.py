@@ -1,14 +1,14 @@
 """Core repricing engine that makes decisions and calculates prices."""
 
 import time
-from typing import Dict, Any, Optional, Tuple
+from typing import Optional, Tuple
 from loguru import logger
 
-from ..schemas.messages import ProcessedOfferData, RepricingDecision, CalculatedPrice
-from ..services.redis_service import RedisService
-from ..strategies import ChaseBuyBox, MaximiseProfit, OnlySeller
-from ..models.product import Product, Strategy
-from ..utils.exceptions import SkipProductRepricing, PriceBoundsError
+from schemas.messages import ProcessedOfferData, RepricingDecision, CalculatedPrice
+from services.redis_service import RedisService
+from strategies import ChaseBuyBox, MaximiseProfit, OnlySeller
+from models.product import Product, Strategy
+from utils.exceptions import SkipProductRepricing, PriceBoundsError
 
 
 
@@ -128,7 +128,6 @@ class RepricingEngine:
 
         # Prevent self competition - check if we are competing against ourselves using new method
         strategy_data = await self.redis.get_strategy_data(strategy_id)
-        from ..models.product import Product, Strategy
         
         # Create product and strategy objects for the new self-competition check
         from decimal import Decimal

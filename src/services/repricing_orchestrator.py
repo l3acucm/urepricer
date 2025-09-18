@@ -7,10 +7,10 @@ from datetime import datetime, UTC
 from concurrent.futures import ThreadPoolExecutor
 from loguru import logger
 
-from src.schemas.messages import ProcessedOfferData
-from src.services.message_processor import MessageProcessor
-from src.services.redis_service import RedisService
-from src.services.repricing_engine import RepricingEngine
+from schemas import ProcessedOfferData
+from services.message_processor import MessageProcessor
+from services.redis_service import RedisService
+from services.repricing_engine import RepricingEngine
 
 
 class RepricingOrchestrator:

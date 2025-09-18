@@ -2,7 +2,7 @@
 Pydantic schemas for Arbitrage Hero API.
 Provides request/response validation and serialization for all endpoints.
 """
-from schemas.messages import WalmartWebhookMessage, ComprehensiveCompetitionData, CompetitorInfo, ProcessedOfferData, \
+from .messages import WalmartWebhookMessage, ComprehensiveCompetitionData, CompetitorInfo, ProcessedOfferData, \
     WalmartOfferChange
 
 # Export all schemas for easy importing

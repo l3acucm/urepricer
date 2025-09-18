@@ -11,7 +11,6 @@ from core.config import get_settings
 from services.redis_service import RedisService
 from services.repricing_orchestrator import RepricingOrchestrator
 
-settings = get_settings()
 
 class SQSConsumer:
     """SQS Consumer that works with both AWS SQS and LocalStack."""
@@ -20,7 +19,7 @@ class SQSConsumer:
         self.settings = get_settings()
         self.sqs_client = None
         self.running = False
-        self.queue_urls = {settings.sqs_queue_url_any_offer}
+        self.queue_urls = {self.settings.sqs_queue_url_any_offer}
         
     async def initialize(self):
         """Initialize SQS client and discover queues."""
@@ -30,16 +29,16 @@ class SQSConsumer:
                 # Development/testing with LocalStack
                 self.sqs_client = boto3.client(
                     'sqs',
-                    endpoint_url=settings.aws_endpoint_url,
-                    region_name=settings.aws_region,
-                    aws_access_key_id=settings.aws_access_key_id,
-                    aws_secret_access_key=settings.aws_secret_access_key
+                    endpoint_url=self.settings.aws_endpoint_url,
+                    region_name=self.settings.aws_region,
+                    aws_access_key_id=self.settings.aws_access_key_id,
+                    aws_secret_access_key=self.settings.aws_secret_access_key
                 )
             else:
                 # Production with real AWS SQS
                 self.sqs_client = boto3.client(
                     'sqs',
-                    region_name=settings.aws_region
+                    region_name=self.settings.aws_region
                 )
             
             # Discover available queues

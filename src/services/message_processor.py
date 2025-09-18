@@ -1,12 +1,11 @@
 """Message processing service for Amazon SQS and Walmart webhook notifications."""
 
 import json
-import asyncio
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
 from loguru import logger
 
-from ..schemas.messages import (
+from schemas.messages import (
     WalmartWebhookMessage, ProcessedOfferData, WalmartOfferChange, ComprehensiveCompetitionData,
     CompetitorInfo
 )
@@ -77,6 +76,9 @@ class MessageProcessor:
                 
                 # Comprehensive competition data
                 competition_data=competition_data,
+                
+                # Primary competitor price (prefer lowest price for most strategies)
+                competitor_price=competition_data.lowest_price_competitor.price if competition_data.lowest_price_competitor else None,
                 
                 # Legacy fields for backward compatibility
                 lowest_price=competition_data.lowest_price_competitor.price if competition_data.lowest_price_competitor else None,
@@ -151,6 +153,9 @@ class MessageProcessor:
                 
                 # Comprehensive competition data
                 competition_data=competition_data,
+                
+                # Primary competitor price (prefer lowest price for most strategies)
+                competitor_price=competition_data.lowest_price_competitor.price if competition_data.lowest_price_competitor else None,
                 
                 # Legacy fields for backward compatibility
                 lowest_price=competition_data.lowest_price_competitor.price if competition_data.lowest_price_competitor else None,
@@ -429,7 +434,7 @@ class MessageProcessor:
         # Look up the ASIN in Redis to find our seller for this product
         try:
             import redis
-            from core.config import get_settings
+            from ..core.config import get_settings
             
             settings = get_settings()
             

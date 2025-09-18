@@ -136,6 +136,9 @@ class ProcessedOfferData(BaseModel):
     # Comprehensive competition data for all strategies
     competition_data: ComprehensiveCompetitionData = Field(default_factory=ComprehensiveCompetitionData, description="Strategy-aware competition data")
 
+    # Primary competitor price field for repricing engine
+    competitor_price: Optional[float] = Field(None, description="Primary competitor price for repricing decisions")
+
     # Legacy fields for backward compatibility (deprecated)
     lowest_price: Optional[float] = Field(None, description="Lowest competitor price (deprecated)")
     lowest_price_competitor: Optional[str] = Field(None, description="Lowest price competitor (deprecated)")

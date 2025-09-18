@@ -2,7 +2,7 @@
 
 import json
 from typing import Dict, Any, Optional, List, Tuple
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, UTC
 import redis.asyncio as redis
 from loguru import logger
 

@@ -4,7 +4,7 @@ Consolidates logging from all original modules.
 """
 import sys
 from loguru import logger
-from src.core.config import get_settings
+from .config import get_settings
 
 
 def setup_logging():

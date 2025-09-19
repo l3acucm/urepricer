@@ -6,6 +6,7 @@ class RedisEntry {
   final ProductData productData;
   final Strategy? strategy;
   final CalculatedPrice? calculatedPrice;
+  final bool repricingPaused;
 
   RedisEntry({
     required this.asin,
@@ -15,6 +16,7 @@ class RedisEntry {
     required this.productData,
     this.strategy,
     this.calculatedPrice,
+    this.repricingPaused = false,
   });
 
   factory RedisEntry.fromJson(Map<String, dynamic> json) {
@@ -30,6 +32,7 @@ class RedisEntry {
       calculatedPrice: json['calculated_price'] != null
           ? CalculatedPrice.fromJson(json['calculated_price'])
           : null,
+      repricingPaused: json['repricing_paused'] ?? false,
     );
   }
 }
@@ -222,6 +225,83 @@ class SendSQSResponse {
       queueType: json['queue_type'] ?? '',
       messageId: json['message_id'],
       sentAt: json['sent_at'] ?? '',
+    );
+  }
+}
+
+class ResetRules {
+  final bool priceResetEnabled;
+  final int priceResetTime;
+  final int priceResumeTime;
+  final String productCondition;
+  final String market;
+
+  ResetRules({
+    required this.priceResetEnabled,
+    required this.priceResetTime,
+    required this.priceResumeTime,
+    required this.productCondition,
+    required this.market,
+  });
+
+  factory ResetRules.fromJson(Map<String, dynamic> json) {
+    return ResetRules(
+      priceResetEnabled: json['price_reset_enabled'] ?? false,
+      priceResetTime: json['price_reset_time'] ?? 0,
+      priceResumeTime: json['price_resume_time'] ?? 0,
+      productCondition: json['product_condition'] ?? 'ALL',
+      market: json['market'] ?? 'all',
+    );
+  }
+}
+
+class ResetRulesResponse {
+  final String status;
+  final String sellerId;
+  final ResetRules? resetRules;
+  final String? message;
+
+  ResetRulesResponse({
+    required this.status,
+    required this.sellerId,
+    this.resetRules,
+    this.message,
+  });
+
+  factory ResetRulesResponse.fromJson(Map<String, dynamic> json) {
+    return ResetRulesResponse(
+      status: json['status'] ?? '',
+      sellerId: json['seller_id'] ?? '',
+      resetRules: json['reset_rules'] != null
+          ? ResetRules.fromJson(json['reset_rules'])
+          : null,
+      message: json['message'],
+    );
+  }
+}
+
+class TriggerResponse {
+  final String status;
+  final String message;
+  final String sellerId;
+  final Map<String, dynamic> results;
+  final String triggeredAt;
+
+  TriggerResponse({
+    required this.status,
+    required this.message,
+    required this.sellerId,
+    required this.results,
+    required this.triggeredAt,
+  });
+
+  factory TriggerResponse.fromJson(Map<String, dynamic> json) {
+    return TriggerResponse(
+      status: json['status'] ?? '',
+      message: json['message'] ?? '',
+      sellerId: json['seller_id'] ?? '',
+      results: json['results'] ?? {},
+      triggeredAt: json['triggered_at'] ?? '',
     );
   }
 }

@@ -55,6 +55,8 @@ class _SQSMessageDialogState extends State<SQSMessageDialog> {
   bool _isSending = false;
   String _selectedQueueType = 'any_offer';
   List<Offer> _offers = [];
+  ResetRules? _resetRules;
+  bool _isLoadingResetRules = false;
 
   @override
   void initState() {
@@ -78,6 +80,31 @@ class _SQSMessageDialogState extends State<SQSMessageDialog> {
         fulfillmentChannel: 'Amazon',
       ),
     ];
+    
+    // Load reset rules for this seller
+    _loadResetRules();
+  }
+
+  Future<void> _loadResetRules() async {
+    setState(() {
+      _isLoadingResetRules = true;
+    });
+
+    try {
+      final response = await widget.apiService.getResetRules(widget.entry.sellerId);
+      setState(() {
+        _resetRules = response.resetRules;
+      });
+    } catch (e) {
+      // Reset rules are optional, so don't show error for this
+      setState(() {
+        _resetRules = null;
+      });
+    } finally {
+      setState(() {
+        _isLoadingResetRules = false;
+      });
+    }
   }
 
   Map<String, dynamic> _generateMessageData() {
@@ -174,6 +201,30 @@ class _SQSMessageDialogState extends State<SQSMessageDialog> {
         duration: const Duration(seconds: 1),
       ),
     );
+  }
+
+  Future<void> _clearCalculatedPrice() async {
+    try {
+      final response = await widget.apiService.clearCalculatedPrice(
+        widget.entry.asin,
+        widget.entry.sellerId,
+        widget.entry.sku,
+      );
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Calculated price cleared successfully'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to clear calculated price: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   String _formatPrice(double? price, String region) {
@@ -552,11 +603,95 @@ class _SQSMessageDialogState extends State<SQSMessageDialog> {
                           child: _buildCopyableField('Default Price', _formatPrice(widget.entry.productData.defaultPrice, widget.entry.region ?? 'us')),
                         ),
                         Expanded(
-                          child: _buildCopyableField('Calculated Price', _formatPrice(widget.entry.calculatedPrice?.newPrice, widget.entry.region ?? 'us')),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: _buildCopyableField('Calculated Price', _formatPrice(widget.entry.calculatedPrice?.newPrice, widget.entry.region ?? 'us')),
+                              ),
+                              if (widget.entry.calculatedPrice?.newPrice != null)
+                                IconButton(
+                                  onPressed: _clearCalculatedPrice,
+                                  icon: const Icon(Icons.clear, size: 16),
+                                  tooltip: 'Clear calculated price',
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                ),
+                            ],
+                          ),
                         ),
                         Expanded(
                           child: _buildCopyableField('Quantity', widget.entry.productData.quantity?.toString() ?? 'N/A'),
                         ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    // Fifth row: Strategy properties and repricing status
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildCopyableField('Beat By', widget.entry.strategy?.beatBy ?? 'N/A'),
+                        ),
+                        Expanded(
+                          child: _buildCopyableField('Min Price Rule', widget.entry.strategy?.minPriceRule ?? 'N/A'),
+                        ),
+                        Expanded(
+                          child: _buildCopyableField('Max Price Rule', widget.entry.strategy?.maxPriceRule ?? 'N/A'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    // Sixth row: Repricing status
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Row(
+                            children: [
+                              Text('Repricing Status: '),
+                              Icon(
+                                widget.entry.repricingPaused ? Icons.pause_circle : Icons.play_circle,
+                                color: widget.entry.repricingPaused ? Colors.red : Colors.green,
+                                size: 16,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(widget.entry.repricingPaused ? 'PAUSED' : 'ACTIVE'),
+                            ],
+                          ),
+                        ),
+                        if (_isLoadingResetRules)
+                          const Expanded(
+                            child: Row(
+                              children: [
+                                Text('Reset Rules: '),
+                                SizedBox(width: 8),
+                                SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                ),
+                              ],
+                            ),
+                          )
+                        else if (_resetRules != null)
+                          Expanded(
+                            flex: 2,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Reset Rules:', style: Theme.of(context).textTheme.labelMedium),
+                                const SizedBox(height: 4),
+                                Text('Enabled: ${_resetRules!.priceResetEnabled ? "Yes" : "No"}', style: const TextStyle(fontSize: 12)),
+                                if (_resetRules!.priceResetEnabled) ...[
+                                  Text('Reset: ${_resetRules!.priceResetTime.toString().padLeft(2, '0')}:00', style: const TextStyle(fontSize: 12)),
+                                  Text('Resume: ${_resetRules!.priceResumeTime.toString().padLeft(2, '0')}:00', style: const TextStyle(fontSize: 12)),
+                                  Text('Market: ${_resetRules!.market.toUpperCase()}', style: const TextStyle(fontSize: 12)),
+                                ],
+                              ],
+                            ),
+                          )
+                        else
+                          const Expanded(
+                            child: Text('Reset Rules: No rules found'),
+                          ),
                       ],
                     ),
                   ],

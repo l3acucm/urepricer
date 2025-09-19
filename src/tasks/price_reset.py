@@ -5,9 +5,8 @@ from datetime import datetime, UTC
 from typing import Dict, List, Any, Optional
 from loguru import logger
 
-from ..celery_app import celery_app
-from ..services.redis_service import RedisService
-from ..core.config import get_settings
+from celery_app import celery_app
+from services.redis_service import RedisService
 
 
 def is_in_reset_window(current_hour: int, reset_hour: int, resume_hour: int) -> bool:
@@ -61,7 +60,7 @@ async def get_reset_rules_for_user(redis_service: RedisService, user_id: int, ma
 
 
 async def reset_product_to_default(redis_service: RedisService, asin: str, seller_id: str, sku: str, reason: str = "hourly_reset") -> bool:
-    """Reset a product's price to its default value."""
+    """Reset a product's price to its max price value."""
     try:
         # Get current product data
         product_data = await redis_service.get_product_data(asin, seller_id, sku)
@@ -69,15 +68,15 @@ async def reset_product_to_default(redis_service: RedisService, asin: str, selle
             logger.warning(f"Product not found for reset: {asin}:{seller_id}:{sku}")
             return False
         
-        default_price = product_data.get("default_price")
+        max_price = product_data.get("max_price")
         current_price = product_data.get("listed_price")
         
-        if default_price is None:
-            logger.warning(f"No default price configured for {asin}:{seller_id}:{sku}")
+        if max_price is None:
+            logger.warning(f"No max price configured for {asin}:{seller_id}:{sku}")
             return False
         
-        if current_price == default_price:
-            logger.debug(f"Price already at default for {asin}:{seller_id}:{sku}")
+        if current_price == max_price:
+            logger.debug(f"Price already at max for {asin}:{seller_id}:{sku}")
             return True
         
         # Save the reset price
@@ -86,7 +85,7 @@ async def reset_product_to_default(redis_service: RedisService, asin: str, selle
             "seller_id": seller_id,
             "sku": sku,
             "old_price": float(current_price) if current_price else None,
-            "new_price": float(default_price),
+            "new_price": float(max_price),
             "strategy_used": "PRICE_RESET",
             "reason": reason,
             "calculated_at": datetime.now(UTC).isoformat(),
@@ -96,7 +95,7 @@ async def reset_product_to_default(redis_service: RedisService, asin: str, selle
         success = await redis_service.save_calculated_price(asin, seller_id, sku, price_data)
         
         if success:
-            logger.info(f"Price reset: {asin}:{seller_id}:{sku} from {current_price} to {default_price}")
+            logger.info(f"Price reset: {asin}:{seller_id}:{sku} from {current_price} to {max_price}")
         
         return success
         

@@ -160,6 +160,26 @@ class _AdminDashboardState extends State<AdminDashboard> {
     );
   }
 
+  Future<void> _triggerReset(String sellerId) async {
+    try {
+      final response = await _apiService.triggerReset(sellerId);
+      _showToast('Reset triggered for $sellerId: ${response.results['reset_count']} products reset');
+      await _loadEntries(); // Refresh data
+    } catch (e) {
+      _showToast('Error triggering reset: $e', isError: true);
+    }
+  }
+
+  Future<void> _triggerResume(String sellerId) async {
+    try {
+      final response = await _apiService.triggerResume(sellerId);
+      _showToast('Resume triggered for $sellerId: ${response.results['resume_count']} products resumed');
+      await _loadEntries(); // Refresh data
+    } catch (e) {
+      _showToast('Error triggering resume: $e', isError: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -330,7 +350,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                           minWidth: 1200,
                           columns: const [
                             DataColumn2(label: Text('ASIN'), size: ColumnSize.L),
-                            DataColumn2(label: Text('Seller ID'), size: ColumnSize.L),
+                            DataColumn2(label: Text('Seller ID & Controls'), size: ColumnSize.L),
                             DataColumn2(label: Text('SKU'), size: ColumnSize.M),
                             DataColumn2(label: Text('Region'), size: ColumnSize.S),
                             DataColumn2(label: Text('Min Price'), size: ColumnSize.S),
@@ -338,6 +358,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                             DataColumn2(label: Text('Max Price'), size: ColumnSize.S),
                             DataColumn2(label: Text('Strategy'), size: ColumnSize.M),
                             DataColumn2(label: Text('Status'), size: ColumnSize.S),
+                            DataColumn2(label: Text('Repricing'), size: ColumnSize.S),
                             DataColumn2(label: Text('Calculated Price'), size: ColumnSize.S),
                           ],
                           rows: _entries.map((entry) {
@@ -345,7 +366,42 @@ class _AdminDashboardState extends State<AdminDashboard> {
                               onTap: () => _showSQSDialog(entry),
                               cells: [
                                 DataCell(Text(entry.asin)),
-                                DataCell(Text(entry.sellerId)),
+                                DataCell(
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(entry.sellerId, style: const TextStyle(fontSize: 12)),
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          ElevatedButton(
+                                            onPressed: () => _triggerReset(entry.sellerId),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: Colors.orange,
+                                              foregroundColor: Colors.white,
+                                              minimumSize: const Size(60, 24),
+                                              padding: const EdgeInsets.symmetric(horizontal: 8),
+                                            ),
+                                            child: const Text('Reset', style: TextStyle(fontSize: 10)),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          ElevatedButton(
+                                            onPressed: () => _triggerResume(entry.sellerId),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: Colors.green,
+                                              foregroundColor: Colors.white,
+                                              minimumSize: const Size(60, 24),
+                                              padding: const EdgeInsets.symmetric(horizontal: 8),
+                                            ),
+                                            child: const Text('Resume', style: TextStyle(fontSize: 10)),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
                                 DataCell(Text(entry.sku)),
                                 DataCell(Text(entry.region ?? 'N/A')),
                                 DataCell(Text(_formatPrice(entry.productData.minPrice, entry.region ?? 'us'))),
@@ -353,6 +409,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
                                 DataCell(Text(_formatPrice(entry.productData.maxPrice, entry.region ?? 'us'))),
                                 DataCell(Text(entry.strategy?.type ?? 'N/A')),
                                 DataCell(Text(entry.productData.status ?? 'N/A')),
+                                DataCell(
+                                  entry.repricingPaused
+                                      ? const Icon(Icons.pause_circle, color: Colors.red, size: 16)
+                                      : const Icon(Icons.play_circle, color: Colors.green, size: 16),
+                                ),
                                 DataCell(Text(_formatPrice(entry.calculatedPrice?.newPrice, entry.region ?? 'us'))),
                               ],
                             );

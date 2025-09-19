@@ -118,6 +118,70 @@ class ApiService {
     }
   }
 
+  Future<ResetRulesResponse> getResetRules(String sellerId) async {
+    final uri = Uri.parse('$baseUrl/admin/get-reset-rules').replace(
+      queryParameters: {'seller_id': sellerId},
+    );
+
+    final response = await client.get(uri);
+
+    if (response.statusCode == 200) {
+      final json = jsonDecode(response.body);
+      return ResetRulesResponse.fromJson(json);
+    } else {
+      throw Exception('Failed to get reset rules: ${response.statusCode} ${response.body}');
+    }
+  }
+
+  Future<TriggerResponse> triggerReset(String sellerId) async {
+    final uri = Uri.parse('$baseUrl/admin/trigger-reset').replace(
+      queryParameters: {'seller_id': sellerId},
+    );
+
+    final response = await client.post(uri);
+
+    if (response.statusCode == 200) {
+      final json = jsonDecode(response.body);
+      return TriggerResponse.fromJson(json);
+    } else {
+      throw Exception('Failed to trigger reset: ${response.statusCode} ${response.body}');
+    }
+  }
+
+  Future<TriggerResponse> triggerResume(String sellerId) async {
+    final uri = Uri.parse('$baseUrl/admin/trigger-resume').replace(
+      queryParameters: {'seller_id': sellerId},
+    );
+
+    final response = await client.post(uri);
+
+    if (response.statusCode == 200) {
+      final json = jsonDecode(response.body);
+      return TriggerResponse.fromJson(json);
+    } else {
+      throw Exception('Failed to trigger resume: ${response.statusCode} ${response.body}');
+    }
+  }
+
+  Future<TriggerResponse> clearCalculatedPrice(String asin, String sellerId, String sku) async {
+    final uri = Uri.parse('$baseUrl/admin/clear-calculated-price').replace(
+      queryParameters: {
+        'asin': asin,
+        'seller_id': sellerId,
+        'sku': sku,
+      },
+    );
+
+    final response = await client.post(uri);
+
+    if (response.statusCode == 200) {
+      final json = jsonDecode(response.body);
+      return TriggerResponse.fromJson(json);
+    } else {
+      throw Exception('Failed to clear calculated price: ${response.statusCode} ${response.body}');
+    }
+  }
+
   void dispose() {
     client.close();
   }

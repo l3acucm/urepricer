@@ -14,6 +14,13 @@ from ..services.sqs_consumer import get_sqs_consumer
 from ..services.redis_service import redis_service
 from ..services.repricing_orchestrator import RepricingOrchestrator
 from ..core.config import get_settings
+from ..utils.price_reset_utils import (
+    reset_seller_products, 
+    resume_seller_products, 
+    get_seller_reset_rules,
+    is_repricing_paused,
+    clear_calculated_price
+)
 
 router = APIRouter()
 
@@ -32,144 +39,7 @@ async def get_stats():
     }
 
 
-@router.post("/pricing/reset")
-async def reset_pricing(reset_data: Dict[str, Any]):
-    """Reset pricing to default price for a specific product."""
-    asin = reset_data.get("asin")
-    seller_id = reset_data.get("seller_id")
-    sku = reset_data.get("sku")
-    reason = reset_data.get("reason", "manual_reset")
-    
-    # Validate required fields
-    if not asin:
-        raise HTTPException(status_code=400, detail="asin is required")
-    if not seller_id:
-        raise HTTPException(status_code=400, detail="seller_id is required")
-    if not sku:
-        raise HTTPException(status_code=400, detail="sku is required")
-    
-    try:
-        # Get current product data from Redis
-        product_data = await redis_service.get_product_data(asin, seller_id, sku)
-        if not product_data:
-            raise HTTPException(
-                status_code=404, 
-                detail=f"Product not found: {asin} for seller {seller_id} with SKU {sku}"
-            )
-        
-        # Extract pricing information
-        default_price = product_data.get("default_price")
-        min_price = product_data.get("min_price")
-        max_price = product_data.get("max_price")
-        current_price = product_data.get("listed_price")
-        
-        if default_price is None:
-            raise HTTPException(
-                status_code=400, 
-                detail="Product has no default_price configured"
-            )
-        
-        # Convert to Decimal for validation
-        default_price = Decimal(str(default_price))
-        
-        # Validate default price is within bounds
-        if min_price is not None:
-            min_price = Decimal(str(min_price))
-            if default_price < min_price:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Default price {default_price} is below minimum price {min_price}"
-                )
-        
-        if max_price is not None:
-            max_price = Decimal(str(max_price))
-            if default_price > max_price:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Default price {default_price} is above maximum price {max_price}"
-                )
-        
-        # Save the reset price to Redis
-        price_data = {
-            "asin": asin,
-            "seller_id": seller_id,
-            "sku": sku,
-            "old_price": float(current_price) if current_price else None,
-            "new_price": float(default_price),
-            "min_price": float(min_price) if min_price else None,
-            "max_price": float(max_price) if max_price else None,
-            "repricer_type": "PRICE_RESET",
-            "reason": reason,
-            "processing_time_ms": 0,
-            "success": True,
-            "reset_at": datetime.now(UTC).isoformat()
-        }
-        
-        success = await redis_service.save_calculated_price(
-            asin, seller_id, sku, price_data
-        )
-        
-        if not success:
-            raise HTTPException(
-                status_code=500, 
-                detail="Failed to save price reset to Redis"
-            )
-        
-        logger.info(
-            f"Price reset completed: {asin} from {current_price} to {default_price}",
-            extra={
-                "asin": asin,
-                "seller_id": seller_id,
-                "sku": sku,
-                "old_price": current_price,
-                "new_price": float(default_price),
-                "reason": reason
-            }
-        )
-        
-        return {
-            "status": "success",
-            "message": "Price reset to default value",
-            "asin": asin,
-            "seller_id": seller_id,
-            "sku": sku,
-            "old_price": float(current_price) if current_price else None,
-            "new_price": float(default_price),
-            "reason": reason,
-            "reset_at": datetime.now(UTC).isoformat()
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(
-            f"Price reset failed for {asin}: {str(e)}",
-            extra={"asin": asin, "seller_id": seller_id, "sku": sku}
-        )
-        raise HTTPException(
-            status_code=500,
-            detail=f"Internal server error: {str(e)}"
-        )
-
-
-@router.post("/pricing/resume")
-async def resume_pricing(resume_data: Dict[str, Any]):
-    """Resume pricing for a seller."""
-    seller_id = resume_data.get("seller_id")
-    marketplace = resume_data.get("marketplace")
-    
-    if not seller_id:
-        raise HTTPException(status_code=400, detail="seller_id is required")
-    
-    logger.info(f"Pricing resume requested for seller {seller_id} in {marketplace}")
-    
-    return {
-        "status": "success",
-        "message": f"Pricing resumed for seller {seller_id}",
-        "seller_id": seller_id,
-        "marketplace": marketplace,
-        "resumed_at": datetime.now(UTC).isoformat()
-    }
+# Removed old /pricing endpoints - replaced with /admin/trigger-reset and /admin/trigger-resume
 
 
 # Amazon test endpoints removed - use dedicated SQS consumer service for real message processing
@@ -531,6 +401,9 @@ async def list_redis_entries(
                     except json.JSONDecodeError:
                         pass
                 
+                # Check if repricing is paused for this seller:asin combination
+                repricing_paused = await is_repricing_paused(redis_service, product_seller_id, asin_value)
+                
                 # Determine region based on seller ID pattern
                 detected_region = product_data.get("region")
                 
@@ -545,7 +418,8 @@ async def list_redis_entries(
                     "region": detected_region,
                     "product_data": product_data,
                     "strategy": strategy_data,
-                    "calculated_price": calculated_price
+                    "calculated_price": calculated_price,
+                    "repricing_paused": repricing_paused
                 }
                 
                 entries.append(entry)
@@ -626,6 +500,118 @@ async def send_test_sqs_message(
         raise HTTPException(status_code=500, detail=error_msg)
     except Exception as e:
         logger.error(f"Failed to send test SQS message: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/admin/get-reset-rules")
+async def get_reset_rules(seller_id: str = Query(..., description="Seller ID to get reset rules for")):
+    """
+    Get price reset rules for a specific seller.
+    """
+    try:
+        reset_rules = await get_seller_reset_rules(redis_service, seller_id)
+        
+        if reset_rules is None:
+            return {
+                "status": "success",
+                "seller_id": seller_id,
+                "reset_rules": None,
+                "message": "No reset rules found for this seller"
+            }
+        
+        return {
+            "status": "success",
+            "seller_id": seller_id,
+            "reset_rules": reset_rules
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get reset rules for seller {seller_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/trigger-reset")
+async def trigger_seller_reset(seller_id: str = Query(..., description="Seller ID to reset prices for")):
+    """
+    Trigger price reset for all products of a specific seller.
+    This will reset all products to their default prices and pause repricing.
+    """
+    try:
+        if not seller_id:
+            raise HTTPException(status_code=400, detail="seller_id is required")
+        
+        logger.info(f"Triggering price reset for seller: {seller_id}")
+        
+        # Reset all products for this seller
+        results = await reset_seller_products(redis_service, seller_id, "admin_manual_reset")
+        
+        return {
+            "status": "success",
+            "message": f"Price reset triggered for seller {seller_id}",
+            "seller_id": seller_id,
+            "results": results,
+            "triggered_at": datetime.now(UTC).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to trigger reset for seller {seller_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/trigger-resume")
+async def trigger_seller_resume(seller_id: str = Query(..., description="Seller ID to resume repricing for")):
+    """
+    Trigger repricing resume for all products of a specific seller.
+    This will remove all repricing pause flags for the seller's products.
+    """
+    try:
+        if not seller_id:
+            raise HTTPException(status_code=400, detail="seller_id is required")
+        
+        logger.info(f"Triggering repricing resume for seller: {seller_id}")
+        
+        # Resume repricing for all products of this seller
+        results = await resume_seller_products(redis_service, seller_id)
+        
+        return {
+            "status": "success",
+            "message": f"Repricing resume triggered for seller {seller_id}",
+            "seller_id": seller_id,
+            "results": results,
+            "triggered_at": datetime.now(UTC).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to trigger resume for seller {seller_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/clear-calculated-price")
+async def clear_product_calculated_price(
+    asin: str = Query(..., description="ASIN of the product"),
+    seller_id: str = Query(..., description="Seller ID"),
+    sku: str = Query(..., description="SKU of the product")
+):
+    """
+    Clear the calculated price for a specific product.
+    """
+    try:
+        success = await clear_calculated_price(redis_service, asin, seller_id, sku)
+        
+        if success:
+            return {
+                "status": "success",
+                "message": f"Calculated price cleared for {asin}",
+                "asin": asin,
+                "seller_id": seller_id,
+                "sku": sku,
+                "cleared_at": datetime.now(UTC).isoformat()
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to clear calculated price")
+        
+    except Exception as e:
+        logger.error(f"Failed to clear calculated price for {asin}:{seller_id}:{sku}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -9,6 +9,7 @@ from services.redis_service import RedisService
 from strategies import ChaseBuyBox, MaximiseProfit, OnlySeller
 from models.product import Product, Strategy
 from utils.exceptions import SkipProductRepricing, PriceBoundsError
+from utils.price_reset_utils import is_repricing_paused
 from utils.reset_utils import should_skip_repricing_sync
 
 
@@ -52,6 +53,21 @@ class RepricingEngine:
                     }
                 )
                 return None
+            
+            # Check if repricing is paused for this specific seller:asin combination
+            asin = offer_data.product_id if offer_data.platform == "AMAZON" else None
+            if asin:
+                repricing_paused = await self._check_repricing_paused(offer_data.seller_id, asin)
+                if repricing_paused:
+                    logger.info(
+                        f"Skipping repricing - repricing paused for {offer_data.seller_id}:{asin}",
+                        extra={
+                            "seller_id": offer_data.seller_id,
+                            "asin": asin,
+                            "platform": offer_data.platform
+                        }
+                    )
+                    return None
             
             # For Amazon, we need to map ASIN to our product data
             # For Walmart, we need to find matching products by item_id
@@ -537,3 +553,7 @@ class RepricingEngine:
         except Exception as e:
             self.logger.error(f"Failed to find product for Walmart item {item_id}: {str(e)}")
             return None, None
+    
+    async def _check_repricing_paused(self, seller_id: str, asin: str) -> bool:
+        """Check if repricing is paused for a specific seller:asin combination."""
+        return await is_repricing_paused(self.redis, seller_id, asin)

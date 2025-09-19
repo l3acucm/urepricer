@@ -1,9 +1,9 @@
 from typing import Dict, Type
-from ..strategies.chase_buybox import ChaseBuyBox
-from ..strategies.maxmise_profit import MaximiseProfit
-from ..strategies.only_seller import OnlySeller
-from ..utils.exceptions import SkipProductRepricing
-from ..models.product import Product
+from strategies.chase_buybox import ChaseBuyBox
+from strategies.maxmise_profit import MaximiseProfit
+from strategies.only_seller import OnlySeller
+from utils.exceptions import SkipProductRepricing
+from models.product import Product
 
 
 strategies: Dict[str, Type] = {
@@ -35,5 +35,5 @@ class ApplyStrategyService:
 
         if product.updated_price == product.listed_price:
             raise SkipProductRepricing(
-                f'New price and old price are same, therefore, skipping repricing for ASIN: {product.asin}...'
+                f'New price and old price are same, therefore, skipping repricing for ASIN: {product.asin}.'
             )

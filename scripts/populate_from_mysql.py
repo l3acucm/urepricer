@@ -107,6 +107,36 @@ class MySQLRedisPopulator:
         finally:
             cursor.close()
     
+    def get_reset_rules(self) -> Dict[str, Dict[str, Any]]:
+        """Fetch repricer reset rules from MySQL."""
+        cursor = self.mysql_conn.cursor(dictionary=True)
+        try:
+            cursor.execute("SELECT * FROM repricer_reset_rules")
+            reset_rules = {}
+            
+            for row in cursor.fetchall():
+                user_id = row['userid']
+                market = row['market'].lower() if row['market'] else 'all'
+                
+                # Create rule key format: reset_rules:{userid}:{market}
+                rule_key = f"{user_id}:{market}"
+                
+                rule_data = {
+                    "price_reset_enabled": str(bool(row['price_reset_enabled'])).lower(),
+                    "price_reset_time": str(row['price_reset_time']).zfill(2),  # Ensure 2 digits
+                    "price_resume_time": str(row['price_resume_time']).zfill(2),  # Ensure 2 digits
+                    "product_condition": row['product_condition'],
+                    "market": market
+                }
+                
+                reset_rules[rule_key] = rule_data
+                
+            logger.info(f"✅ Loaded {len(reset_rules)} reset rules from MySQL")
+            return reset_rules
+            
+        finally:
+            cursor.close()
+    
     def get_inventory_data(self, region: str, offset: int = 0, limit: int = 1000) -> List[Dict[str, Any]]:
         """Fetch inventory data from specified region with pagination."""
         table_name = f"inventory_{region}"
@@ -154,6 +184,16 @@ class MySQLRedisPopulator:
         
         logger.info(f"✅ Saved {len(strategies)} strategy configurations")
     
+    async def save_reset_rules_to_redis(self, reset_rules: Dict[str, Dict[str, Any]]):
+        """Save reset rules to Redis."""
+        logger.info("💾 Saving reset rules...")
+        
+        for rule_key, rule_data in reset_rules.items():
+            redis_key = f"reset_rules.{rule_key}"
+            await self.redis_client.hset(redis_key, mapping=rule_data)
+        
+        logger.info(f"✅ Saved {len(reset_rules)} reset rules")
+    
     async def save_products_to_redis(self, products: List[Dict[str, Any]], user_mapping: Dict[int, Dict[str, str]], region: str):
         """Save product data to Redis."""
         saved_count = 0
@@ -181,6 +221,7 @@ class MySQLRedisPopulator:
                     "max_price": float(product['repricer_max']) if product['repricer_max'] else None,
                     "default_price": float(product['price']) if product['price'] else 0.0,
                     "strategy_id": str(product['repricer_strategy_id']),
+                    "region": region,
                     "status": "Active" if product['enabled'] else "Inactive",
                     "item_condition": product['condition_type'] if product['condition_type'] else "New",
                     "quantity": product['quantity'] if product['quantity'] else 0
@@ -228,6 +269,7 @@ class MySQLRedisPopulator:
         
         results = {
             "strategies_saved": 0,
+            "reset_rules_saved": 0,
             "uk_products_saved": 0,
             "us_products_saved": 0,
             "total_products_saved": 0,
@@ -241,13 +283,17 @@ class MySQLRedisPopulator:
             # Flush Redis
             await self.flush_redis()
             
-            # Get strategies and user mapping
+            # Get strategies, user mapping, and reset rules
             strategies = self.get_strategies()
             user_mapping = self.get_users_seller_mapping()
+            reset_rules = self.get_reset_rules()
             
-            # Save strategies to Redis
+            # Save strategies and reset rules to Redis
             await self.save_strategies_to_redis(strategies)
             results["strategies_saved"] = len(strategies)
+            
+            await self.save_reset_rules_to_redis(reset_rules)
+            results["reset_rules_saved"] = len(reset_rules)
             
             # Populate UK region
             try:
@@ -270,7 +316,7 @@ class MySQLRedisPopulator:
             results["total_products_saved"] = results["uk_products_saved"] + results["us_products_saved"]
             
             logger.info("🎉 MySQL to Redis population completed!")
-            logger.info(f"📊 Summary: {results['strategies_saved']} strategies, {results['total_products_saved']} products")
+            logger.info(f"📊 Summary: {results['strategies_saved']} strategies, {results['reset_rules_saved']} reset rules, {results['total_products_saved']} products")
             
         except Exception as e:
             error_msg = f"Fatal error during population: {e}"
@@ -296,6 +342,7 @@ async def main():
     print("\n" + "="*50)
     print("🎉 Population Results:")
     print(f"  Strategies: {results['strategies_saved']}")
+    print(f"  Reset Rules: {results['reset_rules_saved']}")
     print(f"  UK Products: {results['uk_products_saved']}")
     print(f"  US Products: {results['us_products_saved']}")
     print(f"  Total Products: {results['total_products_saved']}")

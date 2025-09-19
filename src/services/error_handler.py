@@ -2,15 +2,14 @@
 
 import json
 import asyncio
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, Optional
 from datetime import datetime, timedelta, UTC
 from enum import Enum
 from loguru import logger
 import boto3
-from botocore.exceptions import ClientError
 
-from ..schemas.messages import ProcessedOfferData, RepricingDecision
-from ..core.config import get_settings
+from schemas.messages import ProcessedOfferData, RepricingDecision
+from core.config import get_settings
 
 
 class ErrorSeverity(Enum):

@@ -1,6 +1,5 @@
 """SQS Consumer for Amazon notifications."""
 
-import asyncio
 import json
 from typing import Dict, Any
 import boto3
@@ -8,8 +7,8 @@ from botocore.exceptions import ClientError
 from loguru import logger
 
 from core.config import get_settings
-from services.redis_service import RedisService
 from services.repricing_orchestrator import RepricingOrchestrator
+from services.redis_service import RedisService
 
 
 class SQSConsumer:

@@ -426,7 +426,6 @@ async def _process_walmart_webhook_async(webhook_data: Dict[str, Any]):
 
 @router.post("/admin/populate-from-mysql")
 async def populate_from_mysql(
-    background_tasks: BackgroundTasks,
     batch_size: int = Query(1000, description="Number of records to process per batch")
 ):
     """
@@ -435,15 +434,36 @@ async def populate_from_mysql(
     """
     logger.info("MySQL to Redis population requested")
     
-    # Add the population task to background
-    background_tasks.add_task(_populate_from_mysql_async, batch_size)
-    
-    return {
-        "status": "accepted",
-        "message": "MySQL to Redis population started in background",
-        "batch_size": batch_size,
-        "started_at": datetime.now(UTC).isoformat()
-    }
+    try:
+        # Run population synchronously
+        from scripts.populate_from_mysql import MySQLRedisPopulator
+        
+        populator = MySQLRedisPopulator()
+        results = await populator.populate_all_data(batch_size)
+        
+        logger.info(
+            f"MySQL to Redis population completed",
+            extra={
+                "strategies_saved": results["strategies_saved"],
+                "reset_rules_saved": results["reset_rules_saved"],
+                "uk_products_saved": results["uk_products_saved"],
+                "us_products_saved": results["us_products_saved"],
+                "total_products_saved": results["total_products_saved"],
+                "errors_count": len(results["errors"])
+            }
+        )
+        
+        return {
+            "status": "success",
+            "message": "MySQL to Redis population completed",
+            "batch_size": batch_size,
+            "results": results,
+            "completed_at": datetime.now(UTC).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"MySQL to Redis population failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Population failed: {str(e)}")
 
 
 @router.get("/admin/list-entries")
@@ -512,13 +532,7 @@ async def list_redis_entries(
                         pass
                 
                 # Determine region based on seller ID pattern
-                detected_region = None
-                if product_seller_id.startswith("UK_") or "UK" in product_seller_id:
-                    detected_region = "uk"
-                elif product_seller_id.startswith("US_") or "US" in product_seller_id:
-                    detected_region = "us"
-                elif len(product_seller_id) > 10:  # Amazon seller IDs are typically longer
-                    detected_region = "unknown"
+                detected_region = product_data.get("region")
                 
                 # Apply region filter
                 if region and detected_region != region:

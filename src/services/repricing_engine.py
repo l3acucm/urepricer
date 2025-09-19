@@ -9,6 +9,7 @@ from services.redis_service import RedisService
 from strategies import ChaseBuyBox, MaximiseProfit, OnlySeller
 from models.product import Product, Strategy
 from utils.exceptions import SkipProductRepricing, PriceBoundsError
+from utils.reset_utils import should_skip_repricing_sync
 
 
 
@@ -40,6 +41,18 @@ class RepricingEngine:
         start_time = time.time()
         
         try:
+            # Check if repricing should be skipped due to reset/resume rules
+            if should_skip_repricing_sync(offer_data.seller_id):
+                logger.info(
+                    f"Skipping repricing due to reset window for seller {offer_data.seller_id}",
+                    extra={
+                        "seller_id": offer_data.seller_id,
+                        "product_id": offer_data.product_id,
+                        "platform": offer_data.platform
+                    }
+                )
+                return None
+            
             # For Amazon, we need to map ASIN to our product data
             # For Walmart, we need to find matching products by item_id
             

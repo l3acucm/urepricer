@@ -9,9 +9,10 @@ from Amazon and Walmart platforms.
 import json
 import random
 import string
-from typing import Dict, Any
-from locust import HttpUser, task, between
-from datetime import datetime, UTC
+from datetime import UTC, datetime
+from typing import Any, Dict
+
+from locust import HttpUser, between, task
 
 
 class AmazonNotificationUser(HttpUser):

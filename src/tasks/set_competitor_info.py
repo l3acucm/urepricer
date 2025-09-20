@@ -1,5 +1,6 @@
-from typing import Dict, Any, Iterator, Optional
-from ..utils.exceptions import SkipProductRepricing
+from typing import Any, Dict, Iterator
+
+from utils.exceptions import SkipProductRepricing
 
 
 class SetCompetitorInfo:
@@ -10,10 +11,11 @@ class SetCompetitorInfo:
         product (Product): The product data.
         payload (dict): The API payload containing competitor information.
     """
+
     SUMMARIES_PATH = {
-        'MATCH_BUYBOX': 'Summary.BuyBoxPrices',
-        'LOWEST_PRICE': 'Summary.LowestPrices',
-        'LOWEST_FBA_PRICE': 'Summary.LowestPrices',
+        "MATCH_BUYBOX": "Summary.BuyBoxPrices",
+        "LOWEST_PRICE": "Summary.LowestPrices",
+        "LOWEST_FBA_PRICE": "Summary.LowestPrices",
     }
 
     def __init__(self, product: Any, payload: Dict[str, Any]) -> None:
@@ -44,20 +46,20 @@ class SetCompetitorInfo:
 
     def _set_number_of_offers(self) -> None:
         """Set total number of offers."""
-        self.product.no_of_offers = self.payload.get('Summary.TotalOfferCount')
+        self.product.no_of_offers = self.payload.get("Summary.TotalOfferCount")
 
     def _set_competitors_info(self) -> None:
         """Sets the strategy rule based on the 'compete_with' value."""
         compete_with = self.product.strategy.compete_with
-        
+
         if self.product.is_b2b:
             return self._set_b2b_price()
 
-        if compete_with == 'LOWEST_FBA_PRICE':
+        if compete_with == "LOWEST_FBA_PRICE":
             return self._set_fba_lowest_price()
-        elif compete_with == 'LOWEST_PRICE':
+        elif compete_with == "LOWEST_PRICE":
             return self._set_min_price()
-        elif compete_with == 'MATCH_BUYBOX':
+        elif compete_with == "MATCH_BUYBOX":
             return self._set_buybox_price()
 
     def _set_b2b_price(self) -> None:
@@ -70,48 +72,58 @@ class SetCompetitorInfo:
 
         standard_offer = next(filtered_offers, {})
         if (
-            not standard_offer.get("offerType") or
-            standard_offer.get("offerType") == "B2C" or
-            standard_offer.get("quantityTier") == 1
+            not standard_offer.get("offerType")
+            or standard_offer.get("offerType") == "B2C"
+            or standard_offer.get("quantityTier") == 1
         ):
-            seller_id = str(standard_offer.get('sellerId'))
+            seller_id = str(standard_offer.get("sellerId"))
             if seller_id != self.product.account.seller_id:
-                self.product.competitor_price = standard_offer.get('ListingPrice.Amount')
+                self.product.competitor_price = standard_offer.get(
+                    "ListingPrice.Amount"
+                )
         else:
             filtered_offers = iter(summaries)
 
         for offer in filtered_offers:
-            competitor_quantity_tier = str(offer.get('quantityTier'))
-            seller_id = str(offer.get('sellerId'))
+            competitor_quantity_tier = str(offer.get("quantityTier"))
+            seller_id = str(offer.get("sellerId"))
             if tier := self.product.tiers.get(competitor_quantity_tier):
                 if seller_id != self.product.account.seller_id:
-                    tier.competitor_price = offer.get('ListingPrice.Amount')
+                    tier.competitor_price = offer.get("ListingPrice.Amount")
 
-    def _filter_compete_with_offers(self, offers: list, compete_with: str) -> Iterator[Dict[str, Any]]:
+    def _filter_compete_with_offers(
+        self, offers: list, compete_with: str
+    ) -> Iterator[Dict[str, Any]]:
         """Get filtered offers based on the competition rule."""
         product_condition = self.product.mapped_item_condition
-        
-        if compete_with == 'LOWEST_FBA_PRICE':
+
+        if compete_with == "LOWEST_FBA_PRICE":
             filtered_result = filter(
-                lambda offer: offer.get('condition', '').lower() == product_condition 
-                and offer.get('fulfillmentChannel') == 'AMAZON',
-                offers
+                lambda offer: offer.get("condition", "").lower() == product_condition
+                and offer.get("fulfillmentChannel") == "AMAZON",
+                offers,
             )
-        elif compete_with == 'LOWEST_PRICE':
-            filtered_offers = [offer for offer in offers if 'OfferType' not in offer and 'quantityTier' not in offer]
-            sorted_offers = sorted(filtered_offers, key=lambda offer: offer['ListingPrice']['Amount'])
+        elif compete_with == "LOWEST_PRICE":
+            filtered_offers = [
+                offer
+                for offer in offers
+                if "OfferType" not in offer and "quantityTier" not in offer
+            ]
+            sorted_offers = sorted(
+                filtered_offers, key=lambda offer: offer["ListingPrice"]["Amount"]
+            )
 
             for i, offer in enumerate(sorted_offers):
                 offers[i] = offer
 
             filtered_result = filter(
-                lambda offer: offer.get('condition', '').lower() == product_condition, 
-                offers
+                lambda offer: offer.get("condition", "").lower() == product_condition,
+                offers,
             )
         elif compete_with == "MATCH_BUYBOX":
             filtered_result = filter(
-                lambda offer: offer.get('condition', '').lower() == product_condition,
-                offers
+                lambda offer: offer.get("condition", "").lower() == product_condition,
+                offers,
             )
         else:
             filtered_result = iter([])
@@ -120,82 +132,144 @@ class SetCompetitorInfo:
 
     def _set_fba_lowest_price(self) -> None:
         """Retrieves the minimum FBA price."""
-        offers = self.payload.get('Offers', [])
+        offers = self.payload.get("Offers", [])
         product_condition = self.product.mapped_item_condition
-        
-        filtered_offers = filter(
-            lambda offer: offer.get('SubCondition', '').lower() == product_condition 
-            and offer.get('IsFulfilledByAmazon'),
-            offers
-        )
-        sorted_offers = sorted(filtered_offers, key=lambda offer: offer.get('ListingPrice.Amount', 0))
 
-        if not sorted_offers:            
-            raise SkipProductRepricing(f'Competitor not found for {self.product.asin}...')
-        
+        filtered_offers = filter(
+            lambda offer: offer.get("SubCondition", "").lower() == product_condition
+            and offer.get("IsFulfilledByAmazon"),
+            offers,
+        )
+        sorted_offers = sorted(
+            filtered_offers, key=lambda offer: offer.get("ListingPrice.Amount", 0)
+        )
+
+        if not sorted_offers:
+            raise SkipProductRepricing(
+                f"Competitor not found for {self.product.asin}..."
+            )
+
         competitor_offer = sorted_offers[0]
-        if competitor_offer.get('SellerId') == self.product.account.seller_id:
+        if competitor_offer.get("SellerId") == self.product.account.seller_id:
             if len(sorted_offers) > 1:
                 competitor_offer = sorted_offers[1]
             else:
                 raise SkipProductRepricing(
-                    f'Skipping Repricing! of ASIN: {self.product.asin} for SELLER_ID: {self.product.account.seller_id} - (This seller has the only FBA offer)'
+                    f"Skipping Repricing! of ASIN: {self.product.asin} for SELLER_ID: {self.product.account.seller_id} - (This seller has the only FBA offer)"
                 )
 
-        self.product.competitor_price = competitor_offer.get('ListingPrice.Amount')
+        self.product.competitor_price = competitor_offer.get("ListingPrice.Amount")
 
     def _set_min_price(self) -> None:
         """Retrieves the minimum price from all offers."""
-        offers = self.payload.get('Offers', [])
+        offers = self.payload.get("Offers", [])
         product_condition = self.product.mapped_item_condition
-        
+
         filtered_offers = filter(
-            lambda offer: offer.get('SubCondition', '').lower() == product_condition,
-            offers
+            lambda offer: offer.get("SubCondition", "").lower() == product_condition,
+            offers,
         )
-        sorted_offers = sorted(filtered_offers, key=lambda offer: offer.get('ListingPrice.Amount', 0))
+        sorted_offers = sorted(
+            filtered_offers, key=lambda offer: offer.get("ListingPrice.Amount", 0)
+        )
 
         if not sorted_offers:
-            raise SkipProductRepricing(f'Min price not found for ASIN: {self.product.asin}...')
+            raise SkipProductRepricing(
+                f"Min price not found for ASIN: {self.product.asin}..."
+            )
 
         competitor_offer = sorted_offers[0]
-        if competitor_offer.get('SellerId') == self.product.account.seller_id:
+        if competitor_offer.get("SellerId") == self.product.account.seller_id:
             if len(sorted_offers) > 1:
                 competitor_offer = sorted_offers[1]
             else:
                 raise SkipProductRepricing(
-                    f'Skipping Repricing! of ASIN: {self.product.asin} for SELLER_ID: {self.product.account.seller_id} - (This seller has the only offer)'
+                    f"Skipping Repricing! of ASIN: {self.product.asin} for SELLER_ID: {self.product.account.seller_id} - (This seller has the only offer)"
                 )
 
-        self.product.competitor_price = competitor_offer.get('ListingPrice.Amount')
+        self.product.competitor_price = competitor_offer.get("ListingPrice.Amount")
 
     def _set_buybox_price(self) -> None:
         """Retrieves the buybox price."""
         competitor_offer = self._get_competitor_offer()
-        self.product.competitor_price = competitor_offer.get('ListingPrice.Amount')
+        self.product.competitor_price = competitor_offer.get("ListingPrice.Amount")
 
     def _get_competitor_offer(self) -> Dict[str, Any]:
         """Retrieves the buybox winner offer."""
-        offers = self.payload.get('Offers', [])
-        competitor_offer = next((offer for offer in offers if offer.get('IsBuyBoxWinner')), None)
+        offers = self.payload.get("Offers", [])
+        competitor_offer = next(
+            (offer for offer in offers if offer.get("IsBuyBoxWinner")), None
+        )
 
         if not competitor_offer:
             raise SkipProductRepricing(
-                f'Buybox is suppressed. No competitor found for ASIN: {self.product.asin}...'
+                f"Buybox is suppressed. No competitor found for ASIN: {self.product.asin}..."
             )
 
-        if competitor_offer.get('SellerId') == self.product.account.seller_id:
+        if competitor_offer.get("SellerId") == self.product.account.seller_id:
             self.product.is_seller_buybox_winner = True
             try:
                 competitor_offer = offers[1]
             except IndexError:
                 raise SkipProductRepricing(
-                    f'Seller has the buy box, but competitor does not exist for ASIN: {self.product.asin}...'
+                    f"Seller has the buy box, but competitor does not exist for ASIN: {self.product.asin}..."
                 )
 
         return competitor_offer
 
     def _validate_product(self, product: Any) -> None:
         """Validate product data after competitor analysis."""
-        # TODO: Implement product validation logic
-        pass
+        try:
+            # Validate competitor price is set and reasonable
+            if hasattr(product, 'competitor_price') and product.competitor_price is not None:
+                if product.competitor_price <= 0:
+                    raise SkipProductRepricing(
+                        f"Invalid competitor price {product.competitor_price} for ASIN {product.asin}"
+                    )
+                
+                # Check if competitor price is unreasonably high/low compared to our prices
+                our_price = getattr(product, 'listed_price', None) or getattr(product, 'default_price', None)
+                if our_price and product.competitor_price > (our_price * 10):
+                    self.logger.warning(
+                        f"Competitor price {product.competitor_price} is 10x higher than our price {our_price} for ASIN {product.asin}"
+                    )
+                elif our_price and product.competitor_price < (our_price * 0.1):
+                    self.logger.warning(
+                        f"Competitor price {product.competitor_price} is 10x lower than our price {our_price} for ASIN {product.asin}"
+                    )
+            
+            # Validate number of offers is reasonable
+            if hasattr(product, 'no_of_offers'):
+                if product.no_of_offers < 0:
+                    raise SkipProductRepricing(
+                        f"Invalid number of offers {product.no_of_offers} for ASIN {product.asin}"
+                    )
+                elif product.no_of_offers > 1000:  # Sanity check
+                    self.logger.warning(
+                        f"Unusually high number of offers {product.no_of_offers} for ASIN {product.asin}"
+                    )
+            
+            # Validate buybox winner flag consistency
+            if hasattr(product, 'is_seller_buybox_winner') and product.is_seller_buybox_winner:
+                if hasattr(product, 'competitor_price') and product.competitor_price is None:
+                    self.logger.warning(
+                        f"Product {product.asin} has buybox but no competitor price set"
+                    )
+            
+            # Validate essential product data exists
+            if not hasattr(product, 'asin') or not product.asin:
+                raise SkipProductRepricing("Product missing ASIN")
+                
+            if hasattr(product, 'account') and hasattr(product.account, 'seller_id'):
+                if not product.account.seller_id:
+                    raise SkipProductRepricing(f"Product {product.asin} missing seller_id")
+            
+            self.logger.debug(f"Product validation passed for ASIN {product.asin}")
+            
+        except Exception as e:
+            if isinstance(e, SkipProductRepricing):
+                raise  # Re-raise skip exceptions
+            else:
+                # For other validation errors, log and continue (don't fail repricing)
+                self.logger.error(f"Product validation error for ASIN {getattr(product, 'asin', 'unknown')}: {str(e)}")
+                # Don't raise - allow repricing to continue with potentially imperfect data

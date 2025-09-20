@@ -25,7 +25,8 @@ dependencies = [
     "uvicorn[standard] (>=0.35.0,<0.36.0)",
     "httpx (>=0.28.1,<0.29.0)",
     "mysql-connector-python (>=9.1.0,<10.0.0)",
-    "celery[redis] (>=5.5.3,<6.0.0)"
+    "celery[redis] (>=5.5.3,<6.0.0)",
+    "dependency-injector (>=4.41.0,<5.0.0)"
 ]
 
 [tool.poetry]
@@ -36,6 +37,7 @@ fakeredis = "^2.31.1"
 pytest = "^8.4.2"
 pytest-asyncio = "^1.1.0"
 awscli-local = "^0.22.2"
+ruff = "^0.8.4"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
@@ -53,23 +55,76 @@ addopts = [
     "--cov-report=term-missing:skip-covered",
     "--cov-report=html:htmlcov"
 ]
-asyncio_mode = "auto"
+
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests", 
     "e2e: marks tests as end-to-end tests",
     "asyncio: marks tests as async tests",
 ]
+
+[tool.pytest_asyncio]
+asyncio_mode = "auto"
+
 filterwarnings = [
-    "ignore::DeprecationWarning:pydantic.*",
-    "ignore::DeprecationWarning:redis_om.*",
-    "ignore:Monkey-patching ssl:UserWarning",
-    "ignore:.*deprecated.*:DeprecationWarning", 
-    "ignore:.*__fields__.*:DeprecationWarning",
-    "ignore:.*allow_reuse.*:DeprecationWarning",
-    "ignore:.*min_items.*:DeprecationWarning",
-    "ignore:.*max_items.*:DeprecationWarning",
-    "ignore:.*model_fields.*:DeprecationWarning",
-    "ignore:.*Extra keys.*:DeprecationWarning",
-    "ignore:.*class-based.*config.*:DeprecationWarning",
+    "ignore:Monkey-patching ssl:UserWarning"
 ]
+
+[tool.ruff]
+# Exclude common directories
+exclude = [
+    ".bzr",
+    ".direnv", 
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+    "__pycache__",
+]
+
+# Same as Black's line length
+line-length = 88
+indent-width = 4
+
+# Target Python 3.13
+target-version = "py313"
+
+[tool.ruff.lint]
+# Enable pycodestyle (`E`) and Pyflakes (`F`) codes by default
+select = ["E4", "E7", "E9", "F", "I"]
+ignore = []
+
+# Allow fix for all enabled rules (when `--fix`) is provided
+fixable = ["ALL"]
+unfixable = []
+
+# Allow unused variables when underscore-prefixed
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.format]
+# Use double quotes for strings
+quote-style = "double"
+
+# Indent with spaces, rather than tabs
+indent-style = "space"
+
+# Respect magic trailing comma
+skip-magic-trailing-comma = false
+
+# Automatically detect the appropriate line ending
+line-ending = "auto"

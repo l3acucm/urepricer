@@ -35,7 +35,7 @@ class ApiService {
     }
 
     // Default fallback
-    return 'http://localhost:8001';
+    return 'http://localhost:8000';
   }
 
   Future<ListEntriesResponse> getEntries({

@@ -205,7 +205,7 @@ class _SQSMessageDialogState extends State<SQSMessageDialog> {
 
   Future<void> _clearCalculatedPrice() async {
     try {
-      final response = await widget.apiService.clearCalculatedPrice(
+      await widget.apiService.clearCalculatedPrice(
         widget.entry.asin,
         widget.entry.sellerId,
         widget.entry.sku,
@@ -231,7 +231,7 @@ class _SQSMessageDialogState extends State<SQSMessageDialog> {
     if (price == null) return 'N/A';
     
     String symbol;
-    switch (region?.toLowerCase()) {
+    switch (region.toLowerCase()) {
       case 'uk':
         symbol = '£';
         break;
@@ -629,7 +629,7 @@ class _SQSMessageDialogState extends State<SQSMessageDialog> {
                     Row(
                       children: [
                         Expanded(
-                          child: _buildCopyableField('Beat By', widget.entry.strategy?.beatBy ?? 'N/A'),
+                          child: _buildCopyableField('Beat By', widget.entry.strategy?.beatBy.toString() ?? 'N/A'),
                         ),
                         Expanded(
                           child: _buildCopyableField('Min Price Rule', widget.entry.strategy?.minPriceRule ?? 'N/A'),

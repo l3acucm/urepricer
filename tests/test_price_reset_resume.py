@@ -1,20 +1,20 @@
 """Tests for price reset and resume functionality with mocked time."""
 
-import pytest
-from datetime import datetime, UTC
-from unittest.mock import Mock, AsyncMock, patch
-import asyncio
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, patch
 
-from src.utils.reset_utils import (
-    is_in_reset_window,
-    extract_user_info_from_seller_id,
-    should_skip_repricing_async,
-    should_skip_repricing_sync
-)
-from src.tasks.price_reset import (
+import pytest
+
+from tasks.price_reset import (
     get_reset_rules_for_user,
+    process_hourly_reset,
     reset_product_to_default,
-    process_hourly_reset
+)
+from utils.reset_utils import (
+    extract_user_info_from_seller_id,
+    is_in_reset_window,
+    should_skip_repricing_async,
+    should_skip_repricing_sync,
 )
 
 
@@ -117,7 +117,7 @@ class TestResetRulesRetrieval:
     async def test_get_reset_rules_specific_market(self):
         """Test getting reset rules for specific market."""
         # Mock Redis service and client
-        mock_redis_service = Mock()
+        mock_redis_service = AsyncMock()
         mock_redis_client = AsyncMock()
         mock_redis_service.get_connection.return_value = mock_redis_client
         
@@ -144,7 +144,7 @@ class TestResetRulesRetrieval:
     @pytest.mark.asyncio
     async def test_get_reset_rules_fallback_to_all(self):
         """Test fallback to 'all' market when specific market not found."""
-        mock_redis_service = Mock()
+        mock_redis_service = AsyncMock()
         mock_redis_client = AsyncMock()
         mock_redis_service.get_connection.return_value = mock_redis_client
         
@@ -176,7 +176,7 @@ class TestResetRulesRetrieval:
     @pytest.mark.asyncio
     async def test_get_reset_rules_not_found(self):
         """Test when no reset rules are found."""
-        mock_redis_service = Mock()
+        mock_redis_service = AsyncMock()
         mock_redis_client = AsyncMock()
         mock_redis_service.get_connection.return_value = mock_redis_client
         
@@ -194,8 +194,10 @@ class TestRepricingSkipLogic:
     @pytest.mark.asyncio
     async def test_should_skip_repricing_in_window(self):
         """Test skipping repricing when in reset window."""
-        with patch('src.utils.reset_utils.RedisService') as mock_redis_class, \
-             patch('src.utils.reset_utils.get_reset_rules_for_user') as mock_get_rules:
+        from unittest.mock import Mock
+        mock_redis = Mock()
+        
+        with patch('utils.reset_utils.get_reset_rules_for_user') as mock_get_rules:
             
             mock_get_rules.return_value = {
                 "price_reset_enabled": True,
@@ -210,15 +212,17 @@ class TestRepricingSkipLogic:
             test_time_01 = datetime(2025, 1, 1, 1, 15, tzinfo=UTC)   # Should skip
             test_time_12 = datetime(2025, 1, 1, 12, 0, tzinfo=UTC)   # Should not skip
             
-            assert await should_skip_repricing_async("UK_SELLER_123", test_time_23) is True
-            assert await should_skip_repricing_async("UK_SELLER_123", test_time_01) is True
-            assert await should_skip_repricing_async("UK_SELLER_123", test_time_12) is False
+            assert await should_skip_repricing_async(mock_redis, "UK_SELLER_123", test_time_23) is True
+            assert await should_skip_repricing_async(mock_redis, "UK_SELLER_123", test_time_01) is True
+            assert await should_skip_repricing_async(mock_redis, "UK_SELLER_123", test_time_12) is False
     
     @pytest.mark.asyncio
     async def test_should_skip_repricing_disabled(self):
         """Test not skipping when reset is disabled."""
-        with patch('src.utils.reset_utils.RedisService') as mock_redis_class, \
-             patch('src.utils.reset_utils.get_reset_rules_for_user') as mock_get_rules:
+        from unittest.mock import Mock
+        mock_redis = Mock()
+        
+        with patch('utils.reset_utils.get_reset_rules_for_user') as mock_get_rules:
             
             mock_get_rules.return_value = {
                 "price_reset_enabled": False,  # Disabled
@@ -230,38 +234,42 @@ class TestRepricingSkipLogic:
             
             test_time = datetime(2025, 1, 1, 12, 0, tzinfo=UTC)
             
-            assert await should_skip_repricing_async("UK_SELLER_123", test_time) is False
+            assert await should_skip_repricing_async(mock_redis, "UK_SELLER_123", test_time) is False
     
     @pytest.mark.asyncio
     async def test_should_skip_repricing_no_rules(self):
         """Test not skipping when no rules found."""
-        with patch('src.utils.reset_utils.RedisService') as mock_redis_class, \
-             patch('src.utils.reset_utils.get_reset_rules_for_user') as mock_get_rules:
+        from unittest.mock import Mock
+        mock_redis = Mock()
+        
+        with patch('utils.reset_utils.get_reset_rules_for_user') as mock_get_rules:
             
             mock_get_rules.return_value = None  # No rules found
             
             test_time = datetime(2025, 1, 1, 12, 0, tzinfo=UTC)
             
-            assert await should_skip_repricing_async("UK_SELLER_999", test_time) is False
+            assert await should_skip_repricing_async(mock_redis, "UK_SELLER_999", test_time) is False
     
     @pytest.mark.asyncio
     async def test_should_skip_repricing_amazon_seller(self):
         """Test not applying reset rules to Amazon sellers."""
+        from unittest.mock import Mock
+        mock_redis = Mock()
         test_time = datetime(2025, 1, 1, 12, 0, tzinfo=UTC)
         
         # Amazon seller IDs should not have reset rules applied
-        assert await should_skip_repricing_async("A1234567890123", test_time) is False
+        assert await should_skip_repricing_async(mock_redis, "A1234567890123", test_time) is False
     
     def test_should_skip_repricing_sync_wrapper(self):
         """Test the synchronous wrapper function."""
-        with patch('src.utils.reset_utils.should_skip_repricing_async') as mock_async:
-            mock_async.return_value = True
+        with patch('tasks.price_reset.should_skip_repricing') as mock_sync:
+            mock_sync.return_value = True
             
             test_time = datetime(2025, 1, 1, 1, 0, tzinfo=UTC)
             result = should_skip_repricing_sync("UK_SELLER_123", test_time)
             
             assert result is True
-            mock_async.assert_called_once_with("UK_SELLER_123", test_time)
+            mock_sync.assert_called_once_with(123, "uk", test_time)
 
 
 class TestPriceResetTask:
@@ -270,7 +278,7 @@ class TestPriceResetTask:
     @pytest.mark.asyncio
     async def test_reset_product_to_default_success(self):
         """Test successful price reset to default."""
-        mock_redis_service = Mock()
+        mock_redis_service = AsyncMock()
         
         # Mock product data
         mock_redis_service.get_product_data.return_value = {
@@ -306,7 +314,7 @@ class TestPriceResetTask:
     @pytest.mark.asyncio
     async def test_reset_product_already_at_default(self):
         """Test reset when product is already at default price."""
-        mock_redis_service = Mock()
+        mock_redis_service = AsyncMock()
         
         # Product already at default price
         mock_redis_service.get_product_data.return_value = {
@@ -330,7 +338,7 @@ class TestPriceResetTask:
     @pytest.mark.asyncio
     async def test_reset_product_not_found(self):
         """Test reset when product is not found."""
-        mock_redis_service = Mock()
+        mock_redis_service = AsyncMock()
         mock_redis_service.get_product_data.return_value = None
         
         result = await reset_product_to_default(
@@ -345,7 +353,7 @@ class TestPriceResetTask:
     @pytest.mark.asyncio
     async def test_reset_product_no_default_price(self):
         """Test reset when product has no default price."""
-        mock_redis_service = Mock()
+        mock_redis_service = AsyncMock()
         mock_redis_service.get_product_data.return_value = {
             "listed_price": 29.99,
             "default_price": None,  # No default price
@@ -369,20 +377,21 @@ class TestHourlyResetProcessing:
     @pytest.mark.asyncio
     async def test_process_hourly_reset_reset_hour(self):
         """Test processing during the reset hour."""
-        with patch('src.tasks.price_reset.datetime') as mock_datetime, \
-             patch('src.tasks.price_reset.RedisService') as mock_redis_class, \
-             patch('src.tasks.price_reset.get_reset_rules_for_user') as mock_get_rules, \
-             patch('src.tasks.price_reset.reset_product_to_default') as mock_reset:
+        with patch('tasks.price_reset.datetime') as mock_datetime, \
+             patch('tasks.price_reset.container') as mock_container, \
+             patch('tasks.price_reset.get_reset_rules_for_user') as mock_get_rules, \
+             patch('tasks.price_reset.reset_product_to_default') as mock_reset:
             
             # Mock current time to be hour 1 (reset time)
             mock_now = datetime(2025, 1, 1, 1, 0, tzinfo=UTC)
             mock_datetime.now.return_value = mock_now
             
             # Mock Redis service
-            mock_redis_service = Mock()
+            mock_redis_service = AsyncMock()
             mock_redis_client = AsyncMock()
             mock_redis_service.get_connection.return_value = mock_redis_client
-            mock_redis_class.return_value = mock_redis_service
+            mock_redis_service.close_connection.return_value = None
+            mock_container.redis_service.return_value = mock_redis_service
             
             # Mock ASIN keys
             mock_redis_client.keys.return_value = ["ASIN_B123456789"]
@@ -418,23 +427,24 @@ class TestHourlyResetProcessing:
                 "hourly_reset_01:00"
             )
     
-    @pytest.mark.asyncio 
+    @pytest.mark.asyncio
     async def test_process_hourly_reset_skip_hour(self):
         """Test processing during a skip hour (not reset hour)."""
-        with patch('src.tasks.price_reset.datetime') as mock_datetime, \
-             patch('src.tasks.price_reset.RedisService') as mock_redis_class, \
-             patch('src.tasks.price_reset.get_reset_rules_for_user') as mock_get_rules, \
-             patch('src.tasks.price_reset.reset_product_to_default') as mock_reset:
+        with patch('tasks.price_reset.datetime') as mock_datetime, \
+             patch('tasks.price_reset.container') as mock_container, \
+             patch('tasks.price_reset.get_reset_rules_for_user') as mock_get_rules, \
+             patch('tasks.price_reset.reset_product_to_default') as mock_reset:
             
             # Mock current time to be hour 12 (between reset window)
             mock_now = datetime(2025, 1, 1, 12, 0, tzinfo=UTC)
             mock_datetime.now.return_value = mock_now
             
             # Mock Redis service
-            mock_redis_service = Mock()
+            mock_redis_service = AsyncMock()
             mock_redis_client = AsyncMock()
             mock_redis_service.get_connection.return_value = mock_redis_client
-            mock_redis_class.return_value = mock_redis_service
+            mock_redis_service.close_connection.return_value = None
+            mock_container.redis_service.return_value = mock_redis_service
             
             # Mock ASIN keys
             mock_redis_client.keys.return_value = ["ASIN_B123456789"]

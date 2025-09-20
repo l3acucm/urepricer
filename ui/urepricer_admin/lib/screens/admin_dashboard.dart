@@ -101,7 +101,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     if (price == null) return 'N/A';
     
     String symbol;
-    switch (region?.toLowerCase()) {
+    switch (region.toLowerCase()) {
       case 'uk':
         symbol = '£';
         break;

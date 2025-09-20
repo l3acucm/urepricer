@@ -1,20 +1,22 @@
 """Structured logging configuration."""
 
 import atexit
+import json
 import logging
 import queue
 import sys
 import threading
 import time
+from datetime import datetime
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
-from datetime import datetime
-import json
 
 import requests
 import structlog
 
-from config import settings
+from core.config import get_settings
+
+settings = get_settings()
 
 
 def setup_logging() -> structlog.BoundLogger:
@@ -35,6 +37,7 @@ def setup_logging() -> structlog.BoundLogger:
 
             # Check if we're in a solo pool environment (no threading)
             import os
+
             if os.getenv("CELERY_POOL") == "solo":
                 elk_handler.direct_send = True
                 print("ELK handler configured for direct send (solo pool)")
@@ -76,13 +79,17 @@ def setup_logging() -> structlog.BoundLogger:
     return structlog.get_logger()
 
 
-def add_thread_info(logger: Any, method_name: str, event_dict: dict[str, Any]) -> dict[str, Any]:
+def add_thread_info(
+    logger: Any, method_name: str, event_dict: dict[str, Any]
+) -> dict[str, Any]:
     """Add thread information to log entries."""
     event_dict["thread_name"] = threading.current_thread().name
     return event_dict
 
 
-def add_host_info(logger: Any, method_name: str, event_dict: dict[str, Any]) -> dict[str, Any]:
+def add_host_info(
+    logger: Any, method_name: str, event_dict: dict[str, Any]
+) -> dict[str, Any]:
     """Add thread information to log entries."""
     event_dict["host"] = settings.host
     return event_dict
@@ -96,14 +103,14 @@ def _increment_redis_stats(event_name: str, host: str) -> None:
 
         # Run the increment operation
         redis_client.increment_stats(event_name)
-        redis_client.increment_stats(f'processed-messages-{host}')
+        redis_client.increment_stats(f"processed-messages-{host}")
     except Exception:
         # Silently ignore Redis errors to avoid disrupting logging
         pass
 
 
 def redis_stats_processor(
-        logger: Any, method_name: str, event_dict: dict[str, Any]
+    logger: Any, method_name: str, event_dict: dict[str, Any]
 ) -> dict[str, Any]:
     """Process log events and increment Redis stats asynchronously."""
     # Extract event name (first positional argument or 'event' key)
@@ -112,11 +119,13 @@ def redis_stats_processor(
         event_name = event_dict["event"]
     elif len(event_dict.get("positional_args", [])) > 0:
         event_name = event_dict["positional_args"][0]
-    if event_name == 'message_processing_result':
+    if event_name == "message_processing_result":
         # Skip Redis-related events to avoid infinite loops
-        status = event_dict['status']
-        host = event_dict['host']
-        threading.Thread(target=_increment_redis_stats, args=(status, host), daemon=True).start()
+        status = event_dict["status"]
+        host = event_dict["host"]
+        threading.Thread(
+            target=_increment_redis_stats, args=(status, host), daemon=True
+        ).start()
 
     return event_dict
 
@@ -156,7 +165,9 @@ class ELKHandler(logging.Handler):
             # Build log entry
             log_entry = {
                 **message_data,
-                "timestamp": datetime.fromtimestamp(record.created, tz=ZoneInfo("UTC")).astimezone().isoformat(),
+                "timestamp": datetime.fromtimestamp(record.created, tz=ZoneInfo("UTC"))
+                .astimezone()
+                .isoformat(),
                 "level": record.levelname,
                 "module": record.module,
                 "function": record.funcName,
@@ -189,12 +200,14 @@ class ELKHandler(logging.Handler):
             bulk_body.append(json.dumps(log_entry))
             bulk_data = "\n".join(bulk_body) + "\n"
 
-            response = requests.post(
+            requests.post(
                 bulk_url,
                 data=bulk_data,
                 headers={"Content-Type": "application/x-ndjson"},
-                auth=(getattr(settings, "elasticsearch_username", None),
-                      getattr(settings, "elasticsearch_password", None)),
+                auth=(
+                    getattr(settings, "elasticsearch_username", None),
+                    getattr(settings, "elasticsearch_password", None),
+                ),
                 timeout=2.0,
             )
 
@@ -214,7 +227,9 @@ class ELKSender:
         self.stop_event = threading.Event()
         self.batch_size = settings.log_batch_size  # Send 50 logs per batch
         self.batch_timeout = settings.log_batch_timeout  # Send batch every 1 second max
-        self.thread = threading.Thread(target=self._worker, name="ELKSender", daemon=True)
+        self.thread = threading.Thread(
+            target=self._worker, name="ELKSender", daemon=True
+        )
         self.thread.start()
         atexit.register(self.stop)
 
@@ -233,8 +248,8 @@ class ELKSender:
                 # Send batch if size limit reached or timeout exceeded
                 current_time = time.time()
                 should_send = (
-                        len(batch) >= self.batch_size
-                        or (current_time - last_send_time) >= self.batch_timeout
+                    len(batch) >= self.batch_size
+                    or (current_time - last_send_time) >= self.batch_timeout
                 )
 
                 if should_send and batch:
@@ -251,7 +266,7 @@ class ELKSender:
                     last_send_time = current_time
                 continue
         else:
-            print('LOG WORKER STOPPED!!!!')
+            print("LOG WORKER STOPPED!!!!")
 
         # Send remaining logs when stopping
         if batch:
@@ -274,9 +289,6 @@ class ELKSender:
             bulk_body.append(json.dumps(log_entry))
 
         bulk_data = "\n".join(bulk_body) + "\n"
-
-        # Debug first few lines of bulk data
-        lines = bulk_data.split('\n')[:4]
 
         try:
             response = requests.post(

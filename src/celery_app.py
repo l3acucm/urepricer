@@ -2,7 +2,8 @@
 
 from celery import Celery
 from celery.schedules import crontab
-from src.core.config import get_settings
+
+from core.config import get_settings
 
 settings = get_settings()
 
@@ -11,7 +12,7 @@ celery_app = Celery(
     "urepricer",
     broker=f"redis://{settings.redis_host}:{settings.redis_port}",
     backend=f"redis://{settings.redis_host}:{settings.redis_port}",
-    include=["src.tasks.price_reset"]
+    include=["src.tasks.price_reset"],
 )
 
 # Configure Celery
@@ -30,9 +31,9 @@ celery_app.conf.update(
 
 # Schedule hourly price reset task
 celery_app.conf.beat_schedule = {
-    'hourly-price-reset': {
-        'task': 'src.tasks.price_reset.check_and_reset_prices',
-        'schedule': crontab(minute=0),  # Run every hour on the hour
+    "hourly-price-reset": {
+        "task": "src.tasks.price_reset.check_and_reset_prices",
+        "schedule": crontab(minute=0),  # Run every hour on the hour
     },
 }
-celery_app.conf.timezone = 'UTC'
+celery_app.conf.timezone = "UTC"

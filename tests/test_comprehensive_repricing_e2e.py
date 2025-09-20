@@ -16,15 +16,9 @@ Tests all scenarios end-to-end through actual message processing flow:
 Everything tested through real MessageProcessor → RepricingEngine flow.
 """
 
-import pytest
 import json
-import asyncio
-from datetime import datetime
-from unittest.mock import patch, Mock, AsyncMock
 
-from src.services.message_processor import MessageProcessor
-from src.services.repricing_engine import RepricingEngine
-from src.schemas.messages import ProcessedOfferData
+import pytest
 
 
 class TestComprehensiveRepricingE2E:
@@ -34,6 +28,7 @@ class TestComprehensiveRepricingE2E:
     # SELF-COMPETITION DETECTION TESTS
     # =================================================================
     
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("scenario,offers_data,summary_data,strategy_compete_with,expected_skip_reason", [
         # We are the lowest price competitor
         (
@@ -122,7 +117,7 @@ class TestComprehensiveRepricingE2E:
     ])
     @pytest.mark.asyncio
     async def test_self_competition_detection_skips_repricing(
-        self, scenario, offers_data, summary_data, strategy_compete_with, expected_skip_reason
+        self, scenario, offers_data, summary_data, strategy_compete_with, expected_skip_reason, message_processor
     ):
         """Test that self-competition is detected in message processing."""
         
@@ -130,8 +125,7 @@ class TestComprehensiveRepricingE2E:
         sqs_message = self._create_amazon_sqs_message("B07TEST123", "A1TESTSELLER", offers_data, summary_data)
         
         # Process through MessageProcessor
-        processor = MessageProcessor()
-        processed_data = await processor.process_amazon_sqs_message(sqs_message)
+        processed_data = await message_processor.process_amazon_sqs_message(sqs_message)
         
         # Verify the competition data extracted correctly identifies self-competition scenarios
         competition_data = processed_data.competition_data
@@ -251,7 +245,7 @@ class TestComprehensiveRepricingE2E:
     @pytest.mark.asyncio
     async def test_dynamic_strategy_selection_and_execution(
         self, scenario, offers_data, summary_data, is_buybox_winner, 
-        expected_strategy_class, expected_price_calculation
+        expected_strategy_class, expected_price_calculation, message_processor
     ):
         """Test that correct strategy is dynamically selected and executed."""
         
@@ -259,8 +253,7 @@ class TestComprehensiveRepricingE2E:
         sqs_message = self._create_amazon_sqs_message("B07TEST123", "A1TESTSELLER", offers_data, summary_data)
         
         # Process through MessageProcessor to verify competition data extraction
-        processor = MessageProcessor() 
-        processed_data = await processor.process_amazon_sqs_message(sqs_message)
+        processed_data = await message_processor.process_amazon_sqs_message(sqs_message)
         
         # Verify the competition data structure for strategy selection
         competition_data = processed_data.competition_data
@@ -398,7 +391,7 @@ class TestComprehensiveRepricingE2E:
     ])
     @pytest.mark.asyncio
     async def test_competitive_analysis_strategy_logic(
-        self, scenario, offers_data, summary_data, compete_with, expected_competitor, expected_price
+        self, scenario, offers_data, summary_data, compete_with, expected_competitor, expected_price, message_processor
     ):
         """Test that competitive analysis selects correct competitor based on strategy."""
         
@@ -406,8 +399,7 @@ class TestComprehensiveRepricingE2E:
         sqs_message = self._create_amazon_sqs_message("B07TEST123", "A1TESTSELLER", offers_data, summary_data)
         
         # Process through MessageProcessor
-        processor = MessageProcessor()
-        processed_data = await processor.process_amazon_sqs_message(sqs_message)
+        processed_data = await message_processor.process_amazon_sqs_message(sqs_message)
         
         # Verify competition data extraction
         competition_data = processed_data.competition_data
@@ -426,7 +418,7 @@ class TestComprehensiveRepricingE2E:
             competitor = competition_data.lowest_fba_competitor
             assert competitor is not None
             assert competitor.seller_id == expected_competitor
-            assert competitor.is_fba == True  # Must be FBA
+            assert competitor.is_fba  # Must be FBA
             expected_calc_price = competitor.price - 0.01
             
         elif compete_with == "MATCH_BUYBOX":
@@ -434,7 +426,7 @@ class TestComprehensiveRepricingE2E:
             competitor = competition_data.buybox_winner
             assert competitor is not None
             assert competitor.seller_id == expected_competitor
-            assert competitor.is_buybox_winner == True  # Must have buybox
+            assert competitor.is_buybox_winner  # Must have buybox
             expected_calc_price = competitor.price - 0.01
         
         # Verify the calculated price matches expected
@@ -478,7 +470,7 @@ class TestComprehensiveRepricingE2E:
     ])
     @pytest.mark.asyncio
     async def test_price_bounds_validation_enforcement(
-        self, scenario, competitor_price, beat_by, min_price, max_price, expected_result
+        self, scenario, competitor_price, beat_by, min_price, max_price, expected_result, message_processor
     ):
         """Test that price bounds are properly validated and enforced."""
         
@@ -502,8 +494,7 @@ class TestComprehensiveRepricingE2E:
         sqs_message = self._create_amazon_sqs_message("B07TEST123", "A1TESTSELLER", offers_data, summary_data)
         
         # Process through MessageProcessor
-        processor = MessageProcessor()
-        processed_data = await processor.process_amazon_sqs_message(sqs_message)
+        processed_data = await message_processor.process_amazon_sqs_message(sqs_message)
         
         # Get the competition data
         competition_data = processed_data.competition_data
@@ -620,7 +611,7 @@ class TestComprehensiveRepricingE2E:
     ])
     @pytest.mark.asyncio
     async def test_walmart_webhook_processing_flow(
-        self, scenario, walmart_offers, expected_competitor, expected_price
+        self, scenario, walmart_offers, expected_competitor, expected_price, message_processor
     ):
         """Test Walmart webhook message processing and competitive analysis."""
         
@@ -639,8 +630,7 @@ class TestComprehensiveRepricingE2E:
         }
         
         # Process through MessageProcessor
-        processor = MessageProcessor()
-        processed_data = await processor.process_walmart_webhook(webhook_message)
+        processed_data = await message_processor.process_walmart_webhook(webhook_message)
         
         # Verify competitive data extraction
         competition_data = processed_data.competition_data

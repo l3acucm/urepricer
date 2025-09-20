@@ -90,7 +90,7 @@ class ProductData {
 
 class Strategy {
   final String? type;
-  final String? beatBy;
+  final double? beatBy;
   final String? minPriceRule;
   final String? maxPriceRule;
 

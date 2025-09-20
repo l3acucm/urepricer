@@ -1,39 +1,43 @@
 """FastAPI endpoints for Walmart webhook processing."""
 
-from typing import Dict, Any, List
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, Depends
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime
+from typing import Any, Dict, List
+
+import structlog
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from contextlib import asynccontextmanager
-import asyncio
-from datetime import datetime, UTC
-from loguru import logger
 
-from ..services.repricing_orchestrator import RepricingOrchestrator
-from ..services.redis_service import RedisService
+from containers import Container
+from services.repricing_orchestrator import RepricingOrchestrator
 
-# Global services (will be initialized on startup)
-redis_service = None
-orchestrator = None
+logger = structlog.get_logger(__name__)
+
+# Global DI container
+container = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handle application startup and shutdown."""
-    global redis_service, orchestrator
+    global container
 
-    # Startup
-    redis_service = RedisService()
-    orchestrator = RepricingOrchestrator(
-        redis_service=redis_service,
-        max_concurrent_workers=100,  # High concurrency for webhooks
-        batch_size=50
-    )
-    logger.info("FastAPI application started with repricing services")
+    # Startup - Initialize DI container
+    container = Container()
+    container.wire(modules=[__name__])
+    
+    # Configure high concurrency for webhooks
+    orchestrator = container.repricing_orchestrator()
+    orchestrator.max_concurrent_workers = 100
+    orchestrator.batch_size = 50
+    
+    logger.info("FastAPI application started with DI services")
 
     yield
 
     # Shutdown
+    orchestrator = container.repricing_orchestrator()
     if orchestrator:
         await orchestrator.shutdown()
     logger.info("FastAPI application shutdown complete")
@@ -44,7 +48,7 @@ app = FastAPI(
     title="Arbitrage Hero Repricer API",
     description="High-throughput repricing API for Amazon and Walmart",
     version="2.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Add CORS middleware
@@ -58,10 +62,10 @@ app.add_middleware(
 
 
 def get_orchestrator() -> RepricingOrchestrator:
-    """Dependency to get orchestrator instance."""
-    if not orchestrator:
-        raise HTTPException(status_code=500, detail="Orchestrator not initialized")
-    return orchestrator
+    """Dependency to get orchestrator instance from DI container."""
+    if not container:
+        raise HTTPException(status_code=500, detail="DI container not initialized")
+    return container.repricing_orchestrator()
 
 
 @app.get("/")
@@ -77,10 +81,7 @@ async def health_check(orchestrator: RepricingOrchestrator = Depends(get_orchest
 
     status_code = 200 if health_status["overall_status"] == "healthy" else 503
 
-    return JSONResponse(
-        status_code=status_code,
-        content=health_status
-    )
+    return JSONResponse(status_code=status_code, content=health_status)
 
 
 @app.get("/stats")
@@ -98,13 +99,13 @@ async def reset_stats(orchestrator: RepricingOrchestrator = Depends(get_orchestr
 
 @app.post("/walmart/webhook")
 async def process_walmart_webhook(
-        webhook_data: Dict[str, Any],
-        background_tasks: BackgroundTasks,
-        orchestrator: RepricingOrchestrator = Depends(get_orchestrator)
+    webhook_data: Dict[str, Any],
+    background_tasks: BackgroundTasks,
+    orchestrator: RepricingOrchestrator = Depends(get_orchestrator),
 ):
     """
     Process Walmart buy box changed webhook.
-    
+
     This endpoint receives Walmart webhooks about buy box changes and processes them
     through the complete repricing pipeline asynchronously for high throughput.
     """
@@ -114,14 +115,12 @@ async def process_walmart_webhook(
         # Validate basic webhook structure
         if not webhook_data.get("itemId"):
             raise HTTPException(
-                status_code=400,
-                detail="Missing required field: itemId"
+                status_code=400, detail="Missing required field: itemId"
             )
 
         if not webhook_data.get("sellerId"):
             raise HTTPException(
-                status_code=400,
-                detail="Missing required field: sellerId"
+                status_code=400, detail="Missing required field: sellerId"
             )
 
         # Add processing metadata
@@ -129,9 +128,7 @@ async def process_walmart_webhook(
 
         # Process webhook in background for immediate response
         background_tasks.add_task(
-            _process_walmart_webhook_async,
-            webhook_data,
-            orchestrator
+            _process_walmart_webhook_async, webhook_data, orchestrator
         )
 
         # Return immediate response
@@ -140,7 +137,7 @@ async def process_walmart_webhook(
             "message": "Walmart webhook received and queued for processing",
             "item_id": webhook_data["itemId"],
             "seller_id": webhook_data["sellerId"],
-            "received_at": start_time.isoformat()
+            "received_at": start_time.isoformat(),
         }
 
         logger.info(
@@ -148,8 +145,8 @@ async def process_walmart_webhook(
             extra={
                 "item_id": webhook_data["itemId"],
                 "seller_id": webhook_data["sellerId"],
-                "event_type": webhook_data.get("eventType", "unknown")
-            }
+                "event_type": webhook_data.get("eventType", "unknown"),
+            },
         )
 
         return response
@@ -158,21 +155,18 @@ async def process_walmart_webhook(
         raise
     except Exception as e:
         logger.error(f"Error accepting Walmart webhook: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Internal server error: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
 @app.post("/walmart/webhook/batch")
 async def process_walmart_webhook_batch(
-        webhooks: List[Dict[str, Any]],
-        background_tasks: BackgroundTasks,
-        orchestrator: RepricingOrchestrator = Depends(get_orchestrator)
+    webhooks: List[Dict[str, Any]],
+    background_tasks: BackgroundTasks,
+    orchestrator: RepricingOrchestrator = Depends(get_orchestrator),
 ):
     """
     Process multiple Walmart webhooks in batch for higher throughput.
-    
+
     This endpoint allows processing multiple webhook notifications at once,
     which is more efficient for high-volume scenarios.
     """
@@ -180,15 +174,11 @@ async def process_walmart_webhook_batch(
 
     try:
         if not webhooks:
-            raise HTTPException(
-                status_code=400,
-                detail="Empty webhook batch"
-            )
+            raise HTTPException(status_code=400, detail="Empty webhook batch")
 
         if len(webhooks) > 1000:  # Reasonable batch size limit
             raise HTTPException(
-                status_code=400,
-                detail="Batch size too large (max 1000 webhooks)"
+                status_code=400, detail="Batch size too large (max 1000 webhooks)"
             )
 
         # Validate all webhooks in batch
@@ -196,12 +186,12 @@ async def process_walmart_webhook_batch(
             if not webhook.get("itemId"):
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Webhook {i}: Missing required field itemId"
+                    detail=f"Webhook {i}: Missing required field itemId",
                 )
             if not webhook.get("sellerId"):
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Webhook {i}: Missing required field sellerId"
+                    detail=f"Webhook {i}: Missing required field sellerId",
                 )
 
             # Add batch metadata
@@ -210,9 +200,7 @@ async def process_walmart_webhook_batch(
 
         # Process batch in background
         background_tasks.add_task(
-            _process_walmart_webhook_batch_async,
-            webhooks,
-            orchestrator
+            _process_walmart_webhook_batch_async, webhooks, orchestrator
         )
 
         # Return immediate response
@@ -220,15 +208,15 @@ async def process_walmart_webhook_batch(
             "status": "accepted",
             "message": f"Batch of {len(webhooks)} Walmart webhooks accepted for processing",
             "batch_size": len(webhooks),
-            "received_at": start_time.isoformat()
+            "received_at": start_time.isoformat(),
         }
 
         logger.info(
             f"Walmart webhook batch accepted: {len(webhooks)} webhooks",
             extra={
                 "batch_size": len(webhooks),
-                "first_item_id": webhooks[0]["itemId"] if webhooks else "none"
-            }
+                "first_item_id": webhooks[0]["itemId"] if webhooks else "none",
+            },
         )
 
         return response
@@ -237,15 +225,11 @@ async def process_walmart_webhook_batch(
         raise
     except Exception as e:
         logger.error(f"Error accepting Walmart webhook batch: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Internal server error: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
 async def _process_walmart_webhook_async(
-        webhook_data: Dict[str, Any],
-        orchestrator: RepricingOrchestrator
+    webhook_data: Dict[str, Any], orchestrator: RepricingOrchestrator
 ):
     """Background task to process single Walmart webhook."""
     try:
@@ -254,32 +238,28 @@ async def _process_walmart_webhook_async(
         # Log the result (could also send to monitoring system)
         if result["success"]:
             logger.info(
-                f"Walmart webhook processed successfully",
+                "Walmart webhook processed successfully",
                 extra={
                     "item_id": webhook_data["itemId"],
                     "price_changed": result.get("price_changed", False),
-                    "processing_time_ms": result.get("processing_time_ms")
-                }
+                    "processing_time_ms": result.get("processing_time_ms"),
+                },
             )
         else:
             logger.error(
                 f"Walmart webhook processing failed: {result.get('error')}",
-                extra={
-                    "item_id": webhook_data["itemId"],
-                    "error": result.get("error")
-                }
+                extra={"item_id": webhook_data["itemId"], "error": result.get("error")},
             )
 
     except Exception as e:
         logger.error(
             f"Background processing failed for Walmart webhook: {str(e)}",
-            extra={"item_id": webhook_data.get("itemId", "unknown")}
+            extra={"item_id": webhook_data.get("itemId", "unknown")},
         )
 
 
 async def _process_walmart_webhook_batch_async(
-        webhooks: List[Dict[str, Any]],
-        orchestrator: RepricingOrchestrator
+    webhooks: List[Dict[str, Any]], orchestrator: RepricingOrchestrator
 ):
     """Background task to process batch of Walmart webhooks."""
     try:
@@ -293,14 +273,14 @@ async def _process_walmart_webhook_batch_async(
             extra={
                 "batch_size": len(webhooks),
                 "successful_count": successful,
-                "failed_count": len(webhooks) - successful
-            }
+                "failed_count": len(webhooks) - successful,
+            },
         )
 
     except Exception as e:
         logger.error(
             f"Background batch processing failed for Walmart webhooks: {str(e)}",
-            extra={"batch_size": len(webhooks)}
+            extra={"batch_size": len(webhooks)},
         )
 
 
@@ -313,8 +293,8 @@ async def global_exception_handler(request: Request, exc: Exception):
         extra={
             "method": request.method,
             "path": request.url.path,
-            "query_params": str(request.query_params)
-        }
+            "query_params": str(request.query_params),
+        },
     )
 
     return JSONResponse(
@@ -322,8 +302,8 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={
             "error": "Internal server error",
             "message": "An unexpected error occurred",
-            "timestamp": datetime.now(UTC).isoformat()
-        }
+            "timestamp": datetime.now(UTC).isoformat(),
+        },
     )
 
 
@@ -338,5 +318,5 @@ if __name__ == "__main__":
         workers=4,  # Multiple worker processes
         loop="uvloop",  # High-performance event loop
         access_log=False,  # Disable access logs for performance
-        log_config=None  # Use loguru instead of uvicorn's logger
+        log_config=None,  # Use loguru instead of uvicorn's logger
     )

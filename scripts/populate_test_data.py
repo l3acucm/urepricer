@@ -10,10 +10,10 @@ import asyncio
 import json
 import random
 import string
-from datetime import datetime, UTC
-from decimal import Decimal
-from typing import List, Dict, Any
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any, Dict, List
+
 import redis.asyncio as redis
 
 from src.core.config import get_settings

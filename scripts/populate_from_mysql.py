@@ -2,12 +2,15 @@
 
 import asyncio
 import json
+import logging
+from typing import Any, Dict, List
+
 import mysql.connector
-from typing import Dict, Any, List
 import redis.asyncio as redis
-from loguru import logger
 
 from src.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 class MySQLRedisPopulator:
@@ -175,28 +178,43 @@ class MySQLRedisPopulator:
             cursor.close()
     
     async def save_strategies_to_redis(self, strategies: Dict[str, Dict[str, Any]]):
-        """Save strategy configurations to Redis."""
+        """Save strategy configurations to Redis with dual structure support."""
         logger.info("💾 Saving strategy configurations...")
         
-        for strategy_id, strategy_data in strategies.items():
-            redis_key = f"strategy.{strategy_id}"
-            await self.redis_client.hset(redis_key, mapping=strategy_data)
+        pipeline = self.redis_client.pipeline()
         
-        logger.info(f"✅ Saved {len(strategies)} strategy configurations")
+        for strategy_id, strategy_data in strategies.items():
+            # New v2 structure
+            new_key = f"strategy:{strategy_id}"
+            pipeline.hset(new_key, mapping=strategy_data)
+            pipeline.expire(new_key, 3600)  # 1 hour cache
+            
+            # Old v1 structure for backward compatibility
+            old_key = f"strategy.{strategy_id}"
+            pipeline.hset(old_key, mapping=strategy_data)
+            
+            # Add to strategy index
+            pipeline.sadd("indexes:strategies", strategy_id)
+        
+        await pipeline.execute()
+        logger.info(f"✅ Saved {len(strategies)} strategy configurations (dual structure)")
     
     async def save_reset_rules_to_redis(self, reset_rules: Dict[str, Dict[str, Any]]):
-        """Save reset rules to Redis."""
+        """Save reset rules to Redis with dual structure support."""
         logger.info("💾 Saving reset rules...")
         
-        for rule_key, rule_data in reset_rules.items():
-            redis_key = f"reset_rules.{rule_key}"
-            await self.redis_client.hset(redis_key, mapping=rule_data)
+        pipeline = self.redis_client.pipeline()
         
-        logger.info(f"✅ Saved {len(reset_rules)} reset rules")
+        for rule_key, rule_data in reset_rules.items():
+            new_key = f"reset_rules:{rule_key}"
+            pipeline.hset(new_key, mapping=rule_data)
+        await pipeline.execute()
+        logger.info(f"✅ Saved {len(reset_rules)} reset rules (dual structure)")
     
     async def save_products_to_redis(self, products: List[Dict[str, Any]], user_mapping: Dict[int, Dict[str, str]], region: str):
-        """Save product data to Redis."""
+        """Save product data to Redis with dual structure support."""
         saved_count = 0
+        pipeline = self.redis_client.pipeline()
         
         for product in products:
             try:
@@ -209,10 +227,6 @@ class MySQLRedisPopulator:
                 seller_id = user_mapping[user_id][region]
                 asin = product['asin']
                 sku = product['seller_sku']
-                
-                # Create Redis key format: ASIN_{asin}
-                redis_key = f"ASIN_{asin}"
-                field_name = f"{seller_id}:{sku}"
                 
                 # Map MySQL fields to Redis structure
                 product_data = {
@@ -227,13 +241,35 @@ class MySQLRedisPopulator:
                     "quantity": product['quantity'] if product['quantity'] else 0
                 }
                 
-                # Save to Redis
-                await self.redis_client.hset(redis_key, field_name, json.dumps(product_data))
+                # New v2 structure - individual product keys with indexes
+                product_key = f"product:{asin}:{seller_id}:{sku}"
+                flattened_data = {k: str(v) if v is not None else "" for k, v in product_data.items()}
+                pipeline.hset(product_key, mapping=flattened_data)
+                
+                # Update indexes for efficient querying
+                pipeline.sadd("indexes:asins", asin)
+                pipeline.sadd("indexes:sellers", seller_id)
+                pipeline.sadd(f"seller:{seller_id}:products", f"{asin}:{sku}")
+                
+                # Old v1 structure for backward compatibility
+                old_key = f"ASIN_{asin}"
+                field_name = f"{seller_id}:{sku}"
+                pipeline.hset(old_key, field_name, json.dumps(product_data))
+                
                 saved_count += 1
+                
+                # Execute pipeline in batches to avoid memory issues
+                if saved_count % 100 == 0:
+                    await pipeline.execute()
+                    pipeline = self.redis_client.pipeline()
                 
             except Exception as e:
                 logger.warning(f"Error saving product {product.get('asin', 'unknown')}: {e}")
                 continue
+        
+        # Execute remaining commands
+        if saved_count % 100 != 0:
+            await pipeline.execute()
         
         return saved_count
     
